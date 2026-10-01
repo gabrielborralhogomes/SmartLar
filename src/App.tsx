@@ -35,7 +35,6 @@ function localDateTimeMinimum() {
 }
 
 function getClientAddress(client: Cliente) {
-  if (!client.rua) return client.endereco;
   const parts = [
     [client.rua, client.numero].filter(Boolean).join(", "),
     client.complemento,
@@ -67,7 +66,6 @@ function clientValuesFromForm(form: FormData, prefix = ""): ClienteInput {
     cidade: cidade || null,
     estado: estado || null,
     cep: cep || null,
-    endereco: [[rua, numero].filter(Boolean).join(", "), complemento, bairro, cidade, estado, cep].filter(Boolean).join(" · "),
   };
 }
 

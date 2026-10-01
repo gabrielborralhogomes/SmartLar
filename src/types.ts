@@ -11,7 +11,6 @@ export type Cliente = {
   nome: string;
   telefone: string;
   email: string | null;
-  endereco: string;
   rua: string | null;
   numero: string | null;
   complemento: string | null;
