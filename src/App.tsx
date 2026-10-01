@@ -248,7 +248,7 @@ function App() {
                 const { error } = await db.from("produtos").update({ ativo }).eq("id", id);
                 if (error) throw error;
               }, ativo ? "Produto reativado." : "Produto excluído do catálogo; o histórico foi preservado.")} />}
-              {page === "pedidos" && <OrdersPage pedidos={pedidos} clientes={clientes} produtos={produtos} tecnicos={tecnicos}
+              {page === "pedidos" && <OrdersPage clientes={clientes} produtos={produtos}
                 busy={busy}
                 onCreateClient={(values) => runAction(async () => {
                   const { data, error } = await db.from("clientes").insert(values).select("id").single();
