@@ -39,9 +39,6 @@ function getClientAddress(client: Cliente) {
     [client.rua, client.numero].filter(Boolean).join(", "),
     client.complemento,
     client.bairro,
-    client.cidade,
-    client.estado,
-    client.cep,
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -52,9 +49,6 @@ function clientValuesFromForm(form: FormData, prefix = ""): ClienteInput {
   const numero = value("numero");
   const complemento = value("complemento");
   const bairro = value("bairro");
-  const cidade = value("cidade");
-  const estado = value("estado");
-  const cep = value("cep");
   return {
     nome: value("nome"),
     telefone: value("telefone"),
@@ -63,9 +57,6 @@ function clientValuesFromForm(form: FormData, prefix = ""): ClienteInput {
     numero,
     complemento: complemento || null,
     bairro,
-    cidade: cidade || null,
-    estado: estado || null,
-    cep: cep || null,
   };
 }
 
@@ -75,9 +66,6 @@ function ClientAddressFields({ prefix = "" }: { prefix?: string }) {
     <Field label="Número"><input name={`${prefix}numero`} placeholder="Nº ou S/N" required /></Field>
     <Field label="Complemento (opcional)"><input name={`${prefix}complemento`} /></Field>
     <Field label="Bairro"><input name={`${prefix}bairro`} required /></Field>
-    <Field label="Cidade (opcional)"><input name={`${prefix}cidade`} /></Field>
-    <Field label="Estado (opcional)"><input name={`${prefix}estado`} maxLength={2} /></Field>
-    <Field label="CEP (opcional)"><input name={`${prefix}cep`} inputMode="numeric" /></Field>
   </>;
 }
 
