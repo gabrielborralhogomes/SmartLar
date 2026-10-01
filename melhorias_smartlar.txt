@@ -1,0 +1,3 @@
+8 - PENDENTE: os campos de endereço estruturado já foram adicionados, mas a coluna antiga `endereco` ainda existe no Supabase. Execute `supabase/migrations/20261001141500_remove_legacy_endereco.sql` no SQL Editor para preservar os valores antigos e remover a coluna.
+
+PENDENTE ADICIONAL (pedido posterior): execute `supabase/migrations/20261001142000_soft_delete_client.sql` no SQL Editor para ativar exclusão/restauração lógica de clientes.
