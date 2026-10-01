@@ -1,0 +1,85 @@
+{
+  "name": "SmartLar - Notificar novo orçamento",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlar-novo-orcamento",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "c56d7672-773b-47d5-9f53-1da6b0cc6f30",
+      "name": "Webhook do Supabase",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "smartlar-novo-orcamento"
+    },
+    {
+      "parameters": {
+        "url": "https://SEU-PROJETO.supabase.co/rest/v1/pedidos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{$json.body.record.id}}" },
+            { "name": "select", "value": "id,status,valor_total,created_at,cliente:clientes(nome)" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "SUA-CHAVE-ANON" },
+            { "name": "Authorization", "value": "Bearer SUA-CHAVE-ANON" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "af12ea23-3c71-4d89-86a8-9c74273bb303",
+      "name": "Consultar pedido e cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pedido = $json;\nconst cliente = Array.isArray(pedido.cliente) ? pedido.cliente[0] : pedido.cliente;\nreturn [{ json: {\n  evento: 'novo_orcamento',\n  pedido_id: pedido.id,\n  status: pedido.status,\n  cliente: cliente?.nome ?? 'Cliente não encontrado',\n  valor_total: Number(pedido.valor_total),\n  criado_em: pedido.created_at\n} }];"
+      },
+      "id": "b56367d8-2245-48df-b332-2b039e14a970",
+      "name": "Preparar notificação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://webhook.site/SEU-ID-WEBHOOK-SITE",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "e82834a5-693d-4af2-a5da-f65302846b18",
+      "name": "Enviar para destino externo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 0]
+    }
+  ],
+  "connections": {
+    "Webhook do Supabase": {
+      "main": [[{ "node": "Consultar pedido e cliente", "type": "main", "index": 0 }]]
+    },
+    "Consultar pedido e cliente": {
+      "main": [[{ "node": "Preparar notificação", "type": "main", "index": 0 }]]
+    },
+    "Preparar notificação": {
+      "main": [[{ "node": "Enviar para destino externo", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "America/Sao_Paulo" },
+  "versionId": "70a120ac-2364-4fb3-b800-b8e486d42bab",
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}

@@ -1,0 +1,85 @@
+{
+  "name": "SmartLar - Instalações de amanhã",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "days", "triggerAtHour": 8 }]
+        }
+      },
+      "id": "295a9b92-3ccd-4516-8dc6-f901cc71df9f",
+      "name": "Todos os dias às 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://SEU-PROJETO.supabase.co/rest/v1/pedidos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "select", "value": "id,data_instalacao,valor_total,cliente:clientes(nome,endereco),tecnico:tecnicos(nome)" },
+            { "name": "status", "value": "eq.agendado" },
+            { "name": "data_instalacao", "value": "=gte.{{$now.setZone('America/Sao_Paulo').plus({ days: 1 }).startOf('day').toISO()}}" },
+            { "name": "data_instalacao", "value": "=lt.{{$now.setZone('America/Sao_Paulo').plus({ days: 2 }).startOf('day').toISO()}}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "SUA-CHAVE-ANON" },
+            { "name": "Authorization", "value": "Bearer SUA-CHAVE-ANON" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2a021c2-c369-4de7-9ae1-92ead848c95c",
+      "name": "Buscar instalações de amanhã",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const instalacoes = $input.all().map(({ json }) => {\n  const cliente = Array.isArray(json.cliente) ? json.cliente[0] : json.cliente;\n  const tecnico = Array.isArray(json.tecnico) ? json.tecnico[0] : json.tecnico;\n  return {\n    pedido_id: json.id,\n    horario: json.data_instalacao,\n    cliente: cliente?.nome ?? 'Cliente não encontrado',\n    endereco: cliente?.endereco ?? 'Endereço não informado',\n    tecnico: tecnico?.nome ?? 'Técnico não atribuído'\n  };\n});\nreturn instalacoes.length ? [{ json: { evento: 'instalacoes_de_amanha', quantidade: instalacoes.length, instalacoes } }] : [];"
+      },
+      "id": "fe0a4983-4488-4dca-9dce-96752a44bf86",
+      "name": "Montar resumo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://webhook.site/SEU-ID-WEBHOOK-SITE",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "b7d2f924-4348-4204-881b-a7b20ec20f0d",
+      "name": "Enviar resumo ao destino",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 0]
+    }
+  ],
+  "connections": {
+    "Todos os dias às 08:00": {
+      "main": [[{ "node": "Buscar instalações de amanhã", "type": "main", "index": 0 }]]
+    },
+    "Buscar instalações de amanhã": {
+      "main": [[{ "node": "Montar resumo", "type": "main", "index": 0 }]]
+    },
+    "Montar resumo": {
+      "main": [[{ "node": "Enviar resumo ao destino", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "America/Sao_Paulo" },
+  "versionId": "a1daf93b-754a-458d-9fa4-94e35c9691c0",
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}
