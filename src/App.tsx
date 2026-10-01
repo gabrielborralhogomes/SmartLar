@@ -470,8 +470,6 @@ function ProfileSettingsPage({ profile, loginEmail, busy, onSave, onChangeEmail 
       numero: String(form.get("numero")).trim(),
       complemento: String(form.get("complemento")).trim() || null,
       bairro: String(form.get("bairro")).trim(),
-      cidade: String(form.get("cidade")).trim(),
-      estado: String(form.get("estado")).trim().toUpperCase(),
     });
     if (!result.ok) return;
   };
@@ -494,8 +492,6 @@ function ProfileSettingsPage({ profile, loginEmail, busy, onSave, onChangeEmail 
         <Field label="Número"><input name="numero" defaultValue={profile.numero ?? ""} required /></Field>
         <Field label="Complemento (opcional)"><input name="complemento" defaultValue={profile.complemento ?? ""} /></Field>
         <Field label="Bairro"><input name="bairro" defaultValue={profile.bairro ?? ""} required /></Field>
-        <Field label="Cidade"><input name="cidade" defaultValue={profile.cidade || "São Paulo"} required /></Field>
-        <Field label="Estado (UF)"><input name="estado" defaultValue={profile.estado || "SP"} required maxLength={2} /></Field>
       </div>
       <div className="form-actions"><button className="button button-primary" disabled={busy}>Salvar configurações</button></div>
     </form>

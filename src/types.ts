@@ -29,8 +29,6 @@ export type StoreProfile = {
   numero: string | null;
   complemento: string | null;
   bairro: string | null;
-  cidade: string;
-  estado: string;
   updated_at: string;
 };
 
