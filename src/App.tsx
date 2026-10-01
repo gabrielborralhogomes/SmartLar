@@ -1,11 +1,23 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { Session } from "@supabase/supabase-js";
+import { FunctionsHttpError, type Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import type { Cliente, ClienteInput, ItemPedido, Pedido, PedidoDetalhado, PedidoStatus, Produto, StoreProfile, Tecnico } from "./types";
 
 type Page = "dashboard" | "clientes" | "produtos" | "pedidos" | "gestao" | "agenda" | "configuracoes";
 type OrderLine = { produto_id: string; quantidade: number };
 type ActionResult<T> = { ok: true; value: T } | { ok: false };
+type RouteResult = { orderedIds: string[]; durationSeconds: number | null; distanceMeters: number | null };
+
+const saoPauloDate = (date: Date) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
 
 const statusLabel: Record<PedidoStatus, string> = {
   orcamento: "Orçamento",
@@ -308,7 +320,7 @@ function App() {
                     p_itens: itens.map((item) => ({ produto_id: item.produto_id, quantidade: item.quantidade })),
                   });
                   if (error) throw error;
-                }, "Orçamento criado e salvo no Supabase.")}
+                }, "Orçamento criado.")}
               />}
               {page === "gestao" && <OrderManagementPage pedidos={pedidos} clientes={clientes} tecnicos={tecnicos} onNavigate={() => setPage("pedidos")}
                 busy={busy} onStatusChange={(pedido, status, tecnicoId, dataInstalacao) => runAction(async () => {
@@ -320,7 +332,7 @@ function App() {
                   const { error } = await db.from("pedidos").update(updates).eq("id", pedido.id);
                   if (error) throw error;
                 }, `Pedido atualizado para "${statusLabel[status]}".`)} />}
-              {page === "agenda" && <SchedulePage pedidos={pedidos} tecnicos={tecnicos} busy={busy}
+              {page === "agenda" && <SchedulePage pedidos={pedidos} tecnicos={tecnicos} profile={profile} db={db} busy={busy}
                 onStatusChange={(pedido, status) => runAction(async () => {
                   const { error } = await db.from("pedidos").update({ status }).eq("id", pedido.id);
                   if (error) throw error;
@@ -407,6 +419,8 @@ function ProfileSettingsPage({ profile, loginEmail, busy, onSave, onChangeEmail 
       numero: String(form.get("numero")).trim(),
       complemento: String(form.get("complemento")).trim() || null,
       bairro: String(form.get("bairro")).trim(),
+      cidade: String(form.get("cidade")).trim(),
+      estado: String(form.get("estado")).trim().toUpperCase(),
     });
     if (!result.ok) return;
   };
@@ -429,6 +443,8 @@ function ProfileSettingsPage({ profile, loginEmail, busy, onSave, onChangeEmail 
         <Field label="Número"><input name="numero" defaultValue={profile.numero ?? ""} required /></Field>
         <Field label="Complemento (opcional)"><input name="complemento" defaultValue={profile.complemento ?? ""} /></Field>
         <Field label="Bairro"><input name="bairro" defaultValue={profile.bairro ?? ""} required /></Field>
+        <Field label="Cidade"><input name="cidade" defaultValue={profile.cidade || "São Paulo"} required /></Field>
+        <Field label="Estado (UF)"><input name="estado" defaultValue={profile.estado || "SP"} required maxLength={2} /></Field>
       </div>
       <div className="form-actions"><button className="button button-primary" disabled={busy}>Salvar configurações</button></div>
     </form>
@@ -746,17 +762,112 @@ function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onSchedu
   </>;
 }
 
-function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: { pedidos: PedidoDetalhado[]; tecnicos: Tecnico[]; busy: boolean; onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus) => Promise<ActionResult<void>> }) {
+function SchedulePage({ pedidos, tecnicos, profile, db, busy, onStatusChange }: {
+  pedidos: PedidoDetalhado[];
+  tecnicos: Tecnico[];
+  profile: StoreProfile | null;
+  db: NonNullable<typeof supabase>;
+  busy: boolean;
+  onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus) => Promise<ActionResult<void>>;
+}) {
   const [selectedTech, setSelectedTech] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => saoPauloDate(new Date()));
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeError, setRouteError] = useState("");
+  const [routeNotice, setRouteNotice] = useState("");
   useEffect(() => { if (!selectedTech && tecnicos[0]) setSelectedTech(tecnicos[0].id); }, [selectedTech, tecnicos]);
-  const installations = pedidos.filter((order) => order.tecnico_id === selectedTech && ["agendado", "em_andamento"].includes(order.status)).sort((a, b) => (a.data_instalacao ?? "").localeCompare(b.data_instalacao ?? ""));
+  useEffect(() => {
+    setRoute(null);
+    setRouteError("");
+    setRouteNotice("");
+  }, [selectedTech, selectedDate]);
+  const installations = pedidos
+    .filter((order) => order.tecnico_id === selectedTech
+      && ["agendado", "em_andamento"].includes(order.status)
+      && order.data_instalacao
+      && saoPauloDate(new Date(order.data_instalacao)) === selectedDate)
+    .sort((a, b) => (a.data_instalacao ?? "").localeCompare(b.data_instalacao ?? ""));
   const selectedTechnician = tecnicos.find((tech) => tech.id === selectedTech);
+  const orderedInstallations = route
+    ? route.orderedIds.map((id) => installations.find((order) => order.id === id)).filter((order): order is PedidoDetalhado => Boolean(order))
+    : installations;
+  const originAddress = profile
+    ? [profile.rua, profile.numero, profile.complemento, profile.bairro, profile.cidade, profile.estado, "Brasil"].filter(Boolean).join(", ")
+    : "";
+  const appointmentOrder = installations.map((order) => order.id);
+
+  const optimizeRoute = async () => {
+    setRouteBusy(true);
+    setRouteError("");
+    setRouteNotice("");
+    setRoute(null);
+    try {
+      if (!profile?.rua?.trim() || !profile.numero?.trim() || !profile.bairro?.trim()) {
+        throw new Error("Cadastre rua, número e bairro da loja em Configurações antes de gerar a rota.");
+      }
+      if (!profile.cidade?.trim() || !profile.estado?.trim()) {
+        throw new Error("Informe cidade e estado da loja em Configurações para localizar os endereços.");
+      }
+      const stops = installations.map((order) => {
+        if (!order.cliente?.rua?.trim() || !order.cliente.numero?.trim() || !order.cliente.bairro?.trim()) {
+          throw new Error(`Complete rua, número e bairro do cliente ${order.cliente?.nome ?? ""} antes de gerar a rota.`);
+        }
+        return {
+          pedidoId: order.id,
+          address: [order.cliente.rua, order.cliente.numero, order.cliente.complemento, order.cliente.bairro, profile.cidade, profile.estado, "Brasil"].filter(Boolean).join(", "),
+        };
+      });
+      if (stops.length === 0) throw new Error("Não há instalações para esse técnico e dia.");
+
+      const { data, error } = await db.functions.invoke<RouteResult>("otimizar-rota", {
+        body: { originAddress, stops },
+      });
+      if (error instanceof FunctionsHttpError) {
+        const response = await error.context.json();
+        throw new Error(typeof response.message === "string" ? response.message : error.message);
+      }
+      if (error) throw error;
+      if (!data?.orderedIds?.length || data.orderedIds.length !== stops.length) {
+        throw new Error("O serviço de rotas não retornou uma sequência completa de instalações.");
+      }
+      setRoute(data);
+      if (data.orderedIds.some((id, index) => id !== appointmentOrder[index])) {
+        setRouteNotice("A ordem sugerida difere da sequência dos horários marcados. Revise os horários antes de usar esta rota; eles não foram alterados.");
+      }
+    } catch (error) {
+      setRouteError(asErrorMessage(error));
+    } finally {
+      setRouteBusy(false);
+    }
+  };
 
   return <>
-    <PageHeading eyebrow="OPERAÇÃO" title="Agenda técnica" description="Consulte as instalações de cada técnico e atualize o andamento no local." />
+    <PageHeading eyebrow="OPERAÇÃO" title="Agenda técnica" description="Consulte a agenda, atualize as instalações e sugira uma sequência de visitas por deslocamento." />
     <div className="tech-tabs">{tecnicos.map((technician) => <button className={`tech-tab ${selectedTech === technician.id ? "active" : ""}`} key={technician.id} onClick={() => setSelectedTech(technician.id)}><span className="tech-avatar">{technician.nome.slice(0, 1)}</span><span><strong>{technician.nome}</strong><small>{technician.especialidade}</small></span></button>)}</div>
-    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"}</h2><p>{installations.length} instalação(ões) pendente(s)</p></div><span className="tech-specialty">{selectedTechnician?.especialidade}</span></div>
-      {installations.length === 0 ? <EmptyState title="Nenhuma instalação pendente" text="Quando pedidos forem agendados para este técnico, aparecerão aqui." /> : <div className="schedule-list">{installations.map((order) => <article className="schedule-card" key={order.id}><div className="schedule-card-date"><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "") : ""}</span><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit" }) : "—"}</strong><small>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}</small></div><div className="schedule-card-main"><div className="schedule-card-heading"><strong>{order.cliente?.nome}</strong><StatusBadge status={order.status} /></div><span>⌖ {order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span><span>☎ {order.cliente?.telefone}</span><div className="schedule-products">{order.itens.map((item) => `${item.quantidade} × ${item.produto?.nome ?? "Produto"}`).join(" · ")}</div></div><div className="schedule-card-action">{order.status === "agendado" ? <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "em_andamento")}>Iniciar instalação →</button> : <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "concluido")}>Concluir instalação ✓</button>}</div></article>)}</div>}
+    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"}</h2><p>{installations.length} instalação(ões) pendente(s) · {selectedDate}</p></div><span className="tech-specialty">{selectedTechnician?.especialidade}</span></div>
+      <div className="route-controls">
+        <Field label="Dia da rota"><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} /></Field>
+        <button className="button button-primary" disabled={routeBusy || installations.length === 0} onClick={() => void optimizeRoute()}>
+          {routeBusy ? "Calculando sequência..." : route ? "Recalcular rota" : "Ordenar paradas"}
+        </button>
+      </div>
+      <p className="route-privacy-note">O cálculo envia os endereços ao OpenRouteService, sem nomes ou telefones. A estimativa não considera duração dos atendimentos nem trânsito em tempo real; os horários agendados não são alterados.</p>
+      {routeError && <div className="notice notice-error" role="alert">{routeError}</div>}
+      {routeNotice && <div className="notice notice-warning" role="status">{routeNotice}</div>}
+      {route && <div className="route-summary">
+        <strong>Rota sugerida · início na loja</strong>
+        {route.distanceMeters !== null && route.durationSeconds !== null && <span>{(route.distanceMeters / 1000).toFixed(1)} km · {Math.round(route.durationSeconds / 60)} min estimados de deslocamento</span>}
+      </div>}
+      {installations.length === 0 ? <EmptyState title="Nenhuma instalação pendente" text="Quando pedidos forem agendados para este técnico e dia, aparecerão aqui." /> : <div className="schedule-list">
+        {route && <div className="route-start"><span>Partida</span><strong>Loja · {originAddress || "Endereço não configurado"}</strong></div>}
+        {orderedInstallations.map((order, index) => <article className={`schedule-card ${route ? "route-stop" : ""}`} key={order.id}>
+          {route && <div className="route-stop-number">{index + 1}</div>}
+          <div className="schedule-card-date"><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { weekday: "short", timeZone: "America/Sao_Paulo" }).replace(".", "") : ""}</span><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}</strong><small>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : ""}</small></div>
+          <div className="schedule-card-main"><div className="schedule-card-heading"><strong>{order.cliente?.nome}</strong><StatusBadge status={order.status} /></div><span>⌖ {order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span><span>☎ {order.cliente?.telefone}</span><div className="schedule-products">{order.itens.map((item) => `${item.quantidade} × ${item.produto?.nome ?? "Produto"}`).join(" · ")}</div></div>
+          <div className="schedule-card-action">{order.status === "agendado" ? <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "em_andamento")}>Iniciar instalação →</button> : <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "concluido")}>Concluir instalação ✓</button>}</div>
+        </article>)}
+      </div>}
     </section>
   </>;
 }

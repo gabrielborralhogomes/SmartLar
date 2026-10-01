@@ -377,3 +377,19 @@ td, .table-client strong, .selected-client-orders > strong, .mini-order, .produc
 .auth-fields { display: grid; gap: 15px; margin: 24px 0; }
 .auth-submit { width: 100%; min-height: 43px; }
 .auth-card .notice { margin: 12px 0; }
+
+.route-controls { display: flex; align-items: end; gap: 12px; padding: 0 20px 17px; }
+.route-controls .field { width: min(100%, 240px); }
+.route-privacy-note { margin: -5px 20px 14px; color: #7b8a8f; font-size: 11px; line-height: 1.5; }
+.route-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin: 0 20px 14px; padding: 12px 14px; border: 1px solid #d9ebe4; border-radius: 8px; color: #42645b; background: #f2faf6; font-size: 12px; }
+.route-start { display: grid; gap: 4px; margin: 0 15px 10px; padding: 13px; border-left: 3px solid #48ad7d; border-radius: 5px; background: #f3f8f6; font-size: 12px; }
+.route-start span { color: #70818a; font-size: 10px; text-transform: uppercase; }
+.route-stop { grid-template-columns: 30px 48px minmax(0, 1fr) auto; }
+.route-stop-number { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; color: white; background: #317e67; font-size: 12px; font-weight: 700; }
+.notice-warning { margin: 0 20px 14px; padding: 11px 13px; border: 1px solid #eddaa6; border-radius: 7px; color: #785c20; background: #fff8e8; font-size: 12px; }
+@media (max-width: 600px) {
+  .route-controls { align-items: stretch; flex-direction: column; }
+  .route-controls .field { width: 100%; }
+  .route-stop { grid-template-columns: 25px 48px minmax(0, 1fr); }
+  .route-stop .schedule-card-action { grid-column: 3; }
+}
