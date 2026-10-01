@@ -4,8 +4,15 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type StopInput = { pedidoId: string; address: string };
+type StopInput = {
+  pedidoId: string;
+  address: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  requiredSkills: string[];
+};
 type Coordinates = [number, number];
+const skillIds: Record<string, number> = { camera_sensor: 1, fechadura_iluminacao: 2 };
 
 class RouteRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -41,6 +48,22 @@ async function geocode(address: string, apiKey: string): Promise<Coordinates> {
   return [coordinates[0], coordinates[1]];
 }
 
+function secondsSinceSaoPauloMidnight(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    throw new RouteRequestError("Uma instalação contém data e hora inválidas.", 400);
+  }
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return part("hour") * 3600 + part("minute") * 60 + part("second");
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
@@ -49,7 +72,7 @@ Deno.serve(async (request) => {
   if (!apiKey) return jsonResponse({ error: "route_service_not_configured" }, 503);
 
   try {
-    let body: { originAddress?: unknown; stops?: unknown };
+    let body: { originAddress?: unknown; stops?: unknown; technicianSkills?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -68,24 +91,59 @@ Deno.serve(async (request) => {
       }
       const candidate = stop as Record<string, unknown>;
       if (typeof candidate.pedidoId !== "string" || !candidate.pedidoId.trim()
-        || typeof candidate.address !== "string" || !candidate.address.trim()) {
-        throw new RouteRequestError("Cada parada precisa ter um pedido e um endereço.", 400);
+        || typeof candidate.address !== "string" || !candidate.address.trim()
+        || typeof candidate.scheduledAt !== "string"
+        || !Number.isInteger(candidate.durationMinutes) || Number(candidate.durationMinutes) < 15 || Number(candidate.durationMinutes) > 480
+        || !Array.isArray(candidate.requiredSkills)
+        || !candidate.requiredSkills.every((skill) => typeof skill === "string" && Object.hasOwn(skillIds, skill))) {
+        throw new RouteRequestError("Cada parada precisa de pedido, endereço, horário futuro, duração válida e especialidades.", 400);
       }
-      return { pedidoId: candidate.pedidoId, address: candidate.address.trim() };
+      const appointment = new Date(candidate.scheduledAt);
+      if (!Number.isFinite(appointment.getTime()) || appointment.getTime() <= Date.now()) {
+        throw new RouteRequestError("Todas as instalações da rota precisam ter horário futuro válido.", 400);
+      }
+      return {
+        pedidoId: candidate.pedidoId,
+        address: candidate.address.trim(),
+        scheduledAt: candidate.scheduledAt,
+        durationMinutes: Number(candidate.durationMinutes),
+        requiredSkills: candidate.requiredSkills as string[],
+      };
     });
+    if (!Array.isArray(body.technicianSkills)
+      || !body.technicianSkills.every((skill) => typeof skill === "string" && Object.hasOwn(skillIds, skill))) {
+      throw new RouteRequestError("As especialidades do técnico estão ausentes ou inválidas.", 400);
+    }
+    const technicianSkills = [...new Set(body.technicianSkills as string[])].map((skill) => skillIds[skill]);
+    if (technicianSkills.length === 0) {
+      throw new RouteRequestError("O técnico selecionado não tem especialidades de instalação configuradas.", 422);
+    }
 
     if (new Set(parsedStops.map((stop) => stop.pedidoId)).size !== parsedStops.length) {
       throw new RouteRequestError("A lista contém pedidos duplicados.", 400);
     }
 
     const start = await geocode(originAddress, apiKey);
-    const jobs: { id: number; location: Coordinates }[] = [];
+    const jobs: {
+      id: number;
+      location: Coordinates;
+      service: number;
+      skills: number[];
+      time_windows: [number, number][];
+    }[] = [];
     for (const [index, stop] of parsedStops.entries()) {
-      jobs.push({ id: index + 1, location: await geocode(stop.address, apiKey) });
-    }
-
-    if (jobs.length === 1) {
-      return jsonResponse({ orderedIds: [parsedStops[0].pedidoId], durationSeconds: null, distanceMeters: null });
+      const skillIdsForStop = [...new Set(stop.requiredSkills.map((skill) => skillIds[skill]))];
+      if (skillIdsForStop.length === 0 || skillIdsForStop.some((skill) => !technicianSkills.includes(skill))) {
+        throw new RouteRequestError(`O técnico selecionado não tem as especialidades necessárias para o pedido ${stop.pedidoId}.`, 422);
+      }
+      const appointmentSeconds = secondsSinceSaoPauloMidnight(stop.scheduledAt);
+      jobs.push({
+        id: index + 1,
+        location: await geocode(stop.address, apiKey),
+        service: stop.durationMinutes * 60,
+        skills: skillIdsForStop,
+        time_windows: [[appointmentSeconds, Math.min(86400, appointmentSeconds + 15 * 60)]],
+      });
     }
 
     const response = await fetch("https://api.openrouteservice.org/optimization", {
@@ -96,7 +154,7 @@ Deno.serve(async (request) => {
       },
       body: JSON.stringify({
         jobs,
-        vehicles: [{ id: 1, profile: "driving-car", start }],
+        vehicles: [{ id: 1, profile: "driving-car", start, skills: technicianSkills }],
       }),
     });
     if (!response.ok) {
@@ -104,27 +162,29 @@ Deno.serve(async (request) => {
     }
 
     const result = await response.json();
-    const route = result.routes?.[0];
-    if (!route || !Array.isArray(route.steps)) {
+    const unassignedJobs = Array.isArray(result.unassigned) ? result.unassigned : [];
+    const route = Array.isArray(result.routes) ? result.routes[0] : undefined;
+    if ((!route || !Array.isArray(route.steps)) && unassignedJobs.length === 0) {
       throw new RouteRequestError("O serviço de rotas não retornou uma rota válida.", 502);
     }
-    if (Array.isArray(result.unassigned) && result.unassigned.length > 0) {
-      throw new RouteRequestError("O serviço não conseguiu incluir todas as paradas. Confira os endereços.", 422);
-    }
-
-    const orderedIds = route.steps
+    const orderedIds = (route?.steps ?? [])
       .filter((step: { type?: string }) => step.type === "job")
       .map((step: { id?: number }) => parsedStops[Number(step.id) - 1]?.pedidoId)
       .filter((id: string | undefined): id is string => Boolean(id));
 
-    if (orderedIds.length !== parsedStops.length) {
+    const unassignedIds = unassignedJobs
+      .map((job: { id?: number }) => parsedStops[Number(job.id) - 1]?.pedidoId)
+      .filter((id: string | undefined): id is string => Boolean(id));
+
+    if (orderedIds.length + unassignedIds.length !== parsedStops.length) {
       throw new RouteRequestError("A sequência retornada não contém todas as instalações.", 502);
     }
 
     return jsonResponse({
       orderedIds,
-      durationSeconds: Number.isFinite(route.duration) ? route.duration : null,
-      distanceMeters: Number.isFinite(route.distance) ? route.distance : null,
+      unassignedIds,
+      durationSeconds: route && Number.isFinite(route.duration) ? route.duration : null,
+      distanceMeters: route && Number.isFinite(route.distance) ? route.distance : null,
     });
   } catch (error) {
     if (error instanceof RouteRequestError) {

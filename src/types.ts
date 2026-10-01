@@ -39,6 +39,7 @@ export type Tecnico = {
   nome: string;
   telefone: string;
   especialidade: string;
+  habilidades_instalacao: string[];
 };
 
 export type Produto = {
@@ -48,6 +49,7 @@ export type Produto = {
   preco_unitario: number;
   descricao: string;
   ativo: boolean;
+  habilidades_instalacao: string[];
 };
 
 export type ItemPedido = {
@@ -65,6 +67,8 @@ export type Pedido = {
   tecnico_id: string | null;
   status: PedidoStatus;
   data_instalacao: string | null;
+  duracao_instalacao_minutos: number;
+  tecnico_ids: string[];
   valor_total: number;
   forma_pagamento: string | null;
   observacoes: string;
@@ -74,5 +78,6 @@ export type Pedido = {
 export type PedidoDetalhado = Pedido & {
   cliente?: Cliente;
   tecnico?: Tecnico;
+  tecnicos?: Tecnico[];
   itens: (ItemPedido & { produto?: Produto })[];
 };

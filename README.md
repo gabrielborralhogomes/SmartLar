@@ -6,7 +6,7 @@ Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agen
 
 ## Rodar localmente
 
-1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql`, `supabase/migrations/20261001142500_require_basic_client_address.sql`, `supabase/migrations/20261001143000_auth_and_store_profile.sql` e `supabase/migrations/20261001144500_route_optimization.sql` no SQL Editor. Em um projeto existente, execute somente as que ainda não foram aplicadas.
+1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql`, `supabase/migrations/20261001142500_require_basic_client_address.sql`, `supabase/migrations/20261001143000_auth_and_store_profile.sql`, `supabase/migrations/20261001144500_route_optimization.sql` e `supabase/migrations/20261001144600_technician_skills_and_fixed_routes.sql` no SQL Editor. Em um projeto existente, execute somente as migrations ainda não aplicadas.
 2. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com as credenciais públicas do projeto.
 3. Instale as dependências com `npm install`.
 4. Inicie com `npm run dev`. Para validar a build de produção, execute `npm run build`.
@@ -15,20 +15,22 @@ A migration inicial cria e relaciona as tabelas, valida as transições de statu
 
 ## Estrutura e regras
 
-- `clientes` 1:N `pedidos`; `tecnicos` 1:N `pedidos`.
-- `pedidos` 1:N `itens_pedido`; cada item referencia um produto e guarda o preço praticado no momento da venda.
+- `clientes` 1:N `pedidos`; a atribuição principal legada fica em `pedidos.tecnico_id`, enquanto `pedido_tecnicos` associa um ou dois técnicos a cada instalação.
+- `pedidos` 1:N `itens_pedido`; cada item referencia um produto e guarda o preço praticado no momento da venda. `pedido_tecnicos` permite atribuir até dois técnicos a uma instalação.
 - `subtotal` é uma coluna gerada (`quantidade × preço unitário`); um trigger soma os subtotais em `pedidos.valor_total`.
 - `criar_pedido_com_itens` insere o orçamento e seus itens dentro da mesma transação.
 - Os status só avançam por `orcamento → aprovado → agendado → em_andamento → concluido`. Orçamentos e pedidos aprovados podem ser cancelados. A instalação exige técnico e data.
 - `historico_status` guarda cada status, inclusive o inicial.
 - Endereços são separados em rua, número, complemento opcional e bairro. Rua, número e bairro são obrigatórios para novos clientes e alterações de endereço; os campos opcionais cidade, estado e CEP não são armazenados. Registros antigos incompletos permanecem preservados até serem corrigidos.
-- A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. A data e o técnico são obrigatórios ao agendar.
+- A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. O agendamento exige equipe, data/hora futura e duração entre 15 e 480 minutos (padrão: 60). A transação valida que as especialidades da equipe cobrem todos os produtos.
+- As habilidades de instalação são definidas em cada produto: Lucas atende câmeras/sensores; Pedro atende fechaduras/iluminação. Produtos combinados (como o Hub da demonstração) exigem ambos e aparecem nas duas agendas.
 - Produtos são excluídos do catálogo por desativação (`ativo = false`), preservando itens e preços dos pedidos históricos.
 - Clientes também são excluídos por desativação (`ativo = false`), preservando os pedidos existentes. Clientes excluídos podem ser consultados e restaurados na tela de clientes.
 - O painel exige login por e-mail e senha via Supabase Auth. Crie o usuário do Rafael em **Authentication → Users → Add user** antes de aplicar a migration que restringe o banco e desative novos cadastros em **Authentication → Settings**. Não há cadastro público no app.
 - O menu do perfil permite sair e abrir as configurações da loja. O nome, telefone e endereço ficam em `configuracao_loja`; a troca do e-mail de login usa confirmação do Supabase Auth.
-- A Agenda técnica permite selecionar técnico e dia e pedir uma ordem de visitas sugerida pelo OpenRouteService. A rota começa no endereço da loja; a busca dos locais usa a cidade/UF configuradas, o Brasil como país e São Paulo como foco geográfico do cenário. A sequência não altera os horários marcados e sinaliza quando diverge deles. A estimativa não inclui duração dos atendimentos nem trânsito em tempo real.
-- Para ativar a otimização, execute `supabase/migrations/20261001144500_route_optimization.sql`, cadastre `ORS_API_KEY` como secret de Edge Function no Supabase (Dashboard → Edge Functions → Secrets) e publique a função `otimizar-rota` com `supabase functions deploy otimizar-rota --project-ref SEU-PROJECT-REF`. Crie a chave gratuita no painel do OpenRouteService e considere os limites vigentes da conta. A chave do ORS nunca deve ir para o frontend ou para o GitHub. A função geocodifica endereços via ORS e envia somente coordenadas e IDs temporários de paradas à API de otimização; não há mudança necessária no n8n.
+- A Agenda técnica permite selecionar técnico e dia e pedir uma ordem de visitas sugerida pelo OpenRouteService. A rota começa no endereço da loja e usa as especialidades, a duração e uma janela de chegada de 15 minutos após cada horário marcado. Instalações que não cabem nas janelas são sinalizadas; horários salvos nunca são alterados automaticamente. A otimização usa endereços da cidade/UF configuradas, restringe a geocodificação ao Brasil e usa São Paulo como foco geográfico; não há trânsito em tempo real.
+- Para ativar a otimização, execute as migrations de rota e especialidades, cadastre `ORS_API_KEY` como secret de Edge Function no Supabase (Dashboard → Edge Functions → Secrets) e publique a função `otimizar-rota` com `supabase functions deploy otimizar-rota --project-ref SEU-PROJECT-REF`. Crie a chave gratuita no painel do OpenRouteService e considere os limites vigentes da conta. A chave do ORS nunca deve ir para o frontend ou para o GitHub. A função envia endereços à geocodificação e apenas coordenadas, IDs temporários, janelas, durações e habilidades à otimização; não envia nomes ou telefones.
+- Para substituir explicitamente os dados de demonstração atuais pelos cenários de rota de São Paulo, execute `supabase/demo/reset_route_demo.sql` no SQL Editor **depois das migrations**. O script apaga clientes, pedidos, itens, vínculos de técnicos e histórico, além de recriar produtos e técnicos. Ele preserva usuários do Supabase Auth e as configurações/endereço da loja; não execute em um banco que contenha dados reais que deseja manter. Os nomes/telefones/e-mails dos fixtures são fictícios, e os endereços são apenas referências para teste de geocodificação.
 - A migration de autenticação remove o acesso `anon` às tabelas operacionais. Para os workflows n8n continuarem consultando o REST do Supabase, configure uma credencial HTTP segura no n8n com a chave `service_role` do projeto (somente no n8n, nunca no frontend); atualize `apikey` e `Authorization: Bearer` dos nós de consulta. Revise também os workflows já configurados na instância.
 - Depois de aplicar a migration, entre no painel com o e-mail e a senha da conta criada no Supabase.
 
@@ -47,7 +49,7 @@ Os arquivos importáveis estão em `n8n/workflows/`.
 ### Instalações do dia seguinte
 
 1. Importe `alertar-instalacoes-amanha.json`.
-2. Substitua os mesmos marcadores de projeto/chave/destino. Se o workflow já estiver configurado na sua instância, atualize a consulta para usar a chave de serviço e selecionar rua, número, complemento e bairro do cliente.
+2. Substitua os mesmos marcadores de projeto/chave/destino. Se o workflow já estiver configurado na sua instância, atualize a consulta para incluir a relação `pedido_tecnicos(tecnico:tecnicos(nome))` e o campo `duracao_instalacao_minutos`, para incluir toda a equipe no resumo.
 3. O cron está configurado para as 08:00 (`America/Sao_Paulo`). O workflow consulta o endpoint REST do Supabase e envia um resumo se houver instalações no dia seguinte; sem instalações, não envia uma mensagem vazia.
 4. Ative o workflow. Para testar sem esperar o cron, use **Execute workflow** e confira o histórico de execução.
 
