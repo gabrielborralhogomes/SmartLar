@@ -388,3 +388,14 @@ td, .table-client strong, .selected-client-orders > strong, .mini-order, .produc
 .schedule-tech-option small { margin-top: 2px; color: #89979e; font-size: 10px; }
 .skill-hint { margin: 8px 0; color: #71818a; font-size: 11px; }
 .skill-error { color: #b44540; }
+.technician-list { padding: 0 20px 12px; }
+.technician-row { display: flex; align-items: center; gap: 13px; min-height: 72px; border-top: 1px solid #eef1f2; }
+.technician-info { display: grid; flex: 1; gap: 3px; }
+.technician-info strong { color: #344a54; font-size: 12px; }
+.technician-info span, .technician-info small { color: #819098; font-size: 10px; }
+.technician-state { padding: 4px 8px; border-radius: 12px; color: #986c37; background: #fff5e4; font-size: 10px; }
+.technician-state.active { color: #477466; background: #edf6f2; }
+@media (max-width: 600px) {
+  .technician-row { flex-wrap: wrap; padding: 12px 0; }
+  .technician-row .technician-info { flex-basis: calc(100% - 50px); }
+}
