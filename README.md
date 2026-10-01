@@ -1,4 +1,6 @@
-# SmartLar — gestão de pedidos e instalações
+# SmartLar
+
+Gestão de pedidos e instalações
 
 Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agenda dos técnicos. O frontend usa React + TypeScript e lê/grava dados no Supabase; as regras centrais de preço e avanço de status também são aplicadas no PostgreSQL.
 
