@@ -293,3 +293,64 @@ td strong { color: #344a54; font-weight: 600; }
   .page-heading { flex-direction: column; }
   .topbar-right { display: none; }
 }
+
+.dashboard-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; margin-bottom: 18px; }
+.chart-panel { min-height: 230px; }
+.weekly-chart { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 12px; height: 140px; padding: 0 20px 18px; }
+.weekly-chart-column { display: grid; grid-template-rows: 18px 1fr 18px; justify-items: center; height: 100%; color: #778991; }
+.weekly-chart-column strong { color: #526a72; font-size: 11px; }
+.weekly-chart-column small { align-self: end; font-size: 10px; text-transform: capitalize; }
+.weekly-chart-track { display: flex; align-items: end; width: 100%; height: 100%; overflow: hidden; border-radius: 5px 5px 0 0; background: #f3f7f6; }
+.weekly-chart-track span { display: block; width: 100%; min-height: 3px; border-radius: 5px 5px 0 0; background: #48b18d; }
+.status-chart { display: grid; gap: 12px; padding: 0 20px 19px; }
+.status-chart-row { display: grid; grid-template-columns: 105px minmax(0, 1fr) 24px; align-items: center; gap: 9px; color: #70818a; font-size: 11px; }
+.status-chart-row strong { color: #405761; text-align: right; }
+.status-chart-track { height: 8px; overflow: hidden; border-radius: 8px; background: #f1f4f5; }
+.status-chart-fill { display: block; height: 100%; min-width: 0; border-radius: inherit; }
+.status-chart-fill.status-orcamento { background: #dca948; }
+.status-chart-fill.status-aprovado { background: #5a91d3; }
+.status-chart-fill.status-agendado { background: #9279d0; }
+.status-chart-fill.status-em_andamento { background: #49a7b1; }
+.status-chart-fill.status-concluido { background: #48ad7d; }
+.status-chart-fill.status-cancelado { background: #c87c7c; }
+
+.catalog-filters { display: flex; align-items: end; gap: 12px; margin: 0 0 18px; }
+.catalog-filters .search-box { width: min(100%, 360px); }
+.catalog-filters > .field { width: min(100%, 230px); }
+.product-card-actions { display: flex; gap: 5px; }
+.product-delete { color: #af6565; }
+.client-details-row > td { height: auto; padding: 0 0 10px; white-space: normal; }
+.client-details-row .selected-client-orders { margin: 0 15px; }
+.client-details-row .mini-order { flex-wrap: wrap; }
+.order-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 0 20px 18px; }
+.order-filters .field { min-width: 0; }
+.order-filters input, .order-filters select { height: 36px; }
+
+@media (max-width: 900px) {
+  .dashboard-charts { grid-template-columns: 1fr; }
+  .order-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .catalog-filters { align-items: stretch; flex-direction: column; }
+  .catalog-filters .search-box, .catalog-filters > .field { width: 100%; }
+  .order-filters { grid-template-columns: 1fr; padding-right: 12px; padding-left: 12px; }
+}
+
+.eyebrow, .workspace-label, .detail-label { font-size: 11px; }
+.brand span { font-size: 10px; }
+.topbar-right, .breadcrumbs { font-size: 12px; }
+.heading-description { font-size: 14px; }
+.metric-label, .metric-note, .panel-heading p, .list-toolbar p { font-size: 12px; }
+.appointment-info strong, .appointment-tech strong, .quote-info strong { font-size: 12px; }
+.appointment-info span, .appointment-tech span, .quote-info span { font-size: 11px; }
+.button, .text-button, .search-box input, .catalog-summary, .product-card p { font-size: 12px; }
+.field > span, .field > input, .field > select, input, select { font-size: 13px; }
+th { font-size: 10px; }
+td, .table-client strong, .selected-client-orders > strong, .mini-order, .product-price span, .product-category,
+.detail-item, .detail-notes, .order-detail-grid p, .schedule-inline label, .schedule-card-main { font-size: 12px; }
+.product-card h3 { font-size: 14px; }
+.status-badge, .order-number { font-size: 11px; }
+.count-pill { font-size: 11px; }
+@media (max-width: 600px) {
+  .status-chart-row { grid-template-columns: 95px minmax(0, 1fr) 22px; }
+}

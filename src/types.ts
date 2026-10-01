@@ -12,8 +12,17 @@ export type Cliente = {
   telefone: string;
   email: string | null;
   endereco: string;
+  rua: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  cep: string | null;
   created_at: string;
 };
+
+export type ClienteInput = Omit<Cliente, "id" | "created_at">;
 
 export type Tecnico = {
   id: string;

@@ -6,12 +6,12 @@ Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agen
 
 ## Rodar localmente
 
-1. Crie um projeto Supabase e execute no SQL Editor o arquivo `supabase/migrations/20261001000000_smartlar.sql`.
+1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql` e `supabase/migrations/20261001140000_smartlar_improvements.sql` no SQL Editor. Se o projeto já usa a primeira migration, execute somente a segunda.
 2. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com as credenciais públicas do projeto.
 3. Instale as dependências com `npm install`.
 4. Inicie com `npm run dev`. Para validar a build de produção, execute `npm run build`.
 
-A migration cria e relaciona as tabelas, valida as transições de status, registra o histórico, calcula totais no banco e insere dados de demonstração: 5 clientes, Lucas e Pedro, 6 produtos e 8 pedidos. O primeiro pedido de exemplo contém 2 câmeras IP (R$ 450 cada) e 1 sensor (R$ 180), totalizando R$ 1.080.
+A migration inicial cria e relaciona as tabelas, valida as transições de status, registra o histórico, calcula totais no banco e insere dados de demonstração: 5 clientes, Lucas e Pedro, 6 produtos e 8 pedidos. O primeiro pedido de exemplo contém 2 câmeras IP (R$ 450 cada) e 1 sensor (R$ 180), totalizando R$ 1.080. A migration incremental adiciona campos estruturados para endereço e impede novos agendamentos ou alterações de data para horários passados, sem alterar agendamentos históricos.
 
 ## Estrutura e regras
 
@@ -21,6 +21,9 @@ A migration cria e relaciona as tabelas, valida as transições de status, regis
 - `criar_pedido_com_itens` insere o orçamento e seus itens dentro da mesma transação.
 - Os status só avançam por `orcamento → aprovado → agendado → em_andamento → concluido`. Orçamentos e pedidos aprovados podem ser cancelados. A instalação exige técnico e data.
 - `historico_status` guarda cada status, inclusive o inicial.
+- Endereços novos são separados em rua, número, complemento, bairro, cidade, estado e CEP. O campo legado `endereco` permanece preenchido para compatibilidade; clientes antigos continuam visíveis sem migração manual dos valores.
+- A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. A data e o técnico são obrigatórios ao agendar.
+- Produtos são excluídos do catálogo por desativação (`ativo = false`), preservando itens e preços dos pedidos históricos.
 
 ## n8n
 
