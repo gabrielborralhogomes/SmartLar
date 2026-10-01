@@ -19,7 +19,7 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "select", "value": "id,data_instalacao,duracao_instalacao_minutos,valor_total,cliente:clientes(nome,rua,numero,complemento,bairro),tecnico:tecnicos(nome),pedido_tecnicos(tecnico:tecnicos(nome))" },
+            { "name": "select", "value": "id,data_instalacao,duracao_instalacao_minutos,valor_total,cliente:clientes(nome,rua,numero,complemento,bairro),tecnico:tecnicos!pedidos_tecnico_id_fkey(nome),pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))" },
             { "name": "status", "value": "eq.agendado" },
             { "name": "data_instalacao", "value": "=gte.{{$now.setZone('America/Sao_Paulo').plus({ days: 1 }).startOf('day').toISO()}}" },
             { "name": "data_instalacao", "value": "=lt.{{$now.setZone('America/Sao_Paulo').plus({ days: 2 }).startOf('day').toISO()}}" }
