@@ -221,9 +221,8 @@ function App() {
     setPedidos(((ordersResult.data ?? []) as Pedido[]).map((order) => ({
       ...order,
       cliente: clientById.get(order.cliente_id),
-      tecnico: order.tecnico_id ? technicianById.get(order.tecnico_id) : undefined,
-      tecnico_ids: techniciansByOrder.get(order.id) ?? (order.tecnico_id ? [order.tecnico_id] : []),
-      tecnicos: (techniciansByOrder.get(order.id) ?? (order.tecnico_id ? [order.tecnico_id] : [])).flatMap((id) => {
+      tecnico_ids: techniciansByOrder.get(order.id) ?? [],
+      tecnicos: (techniciansByOrder.get(order.id) ?? []).flatMap((id) => {
         const technician = technicianById.get(id);
         return technician ? [technician] : [];
       }),
@@ -586,7 +585,7 @@ function Dashboard({ pedidos, ownerName, onNavigate }: { pedidos: PedidoDetalhad
           <div className="appointment-list">{appointments.map((order) => <div className="appointment-row" key={order.id}>
             <div className="appointment-date"><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit" }) : "—"}</strong><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "") : ""}</span></div>
             <div className="appointment-info"><strong>{order.cliente?.nome ?? "Cliente"}</strong><span>{order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span></div>
-            <div className="appointment-tech"><strong>{order.tecnico?.nome ?? "Sem técnico"}</strong><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>
+            <div className="appointment-tech"><strong>{order.tecnicos?.map((technician) => technician.nome).join(" + ") || "Sem técnico"}</strong><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>
           </div>)}</div>}
       </section>
       <section className="panel">
@@ -879,7 +878,7 @@ function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onSchedu
   const skills = requiredSkills(order);
   const coveredSkills = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.habilidades_instalacao ?? []));
   const teamCoversSkills = skills.every((skill) => coveredSkills.has(skill));
-  const assignedNames = order.tecnicos?.map((technician) => technician.nome).join(" + ") || order.tecnico?.nome;
+  const assignedNames = order.tecnicos?.map((technician) => technician.nome).join(" + ");
   return <>
     <tr className="order-row"><td><strong className="order-number">#{order.id.slice(0, 8).toUpperCase()}</strong></td><td><strong>{order.cliente?.nome ?? "Cliente"}</strong><span className="table-subtitle">{order.cliente?.telefone ?? ""}</span></td><td>{dateOnly.format(new Date(order.created_at))}</td><td>{order.data_instalacao ? dateTime.format(new Date(order.data_instalacao)) : "—"}</td><td><strong>{currency.format(Number(order.valor_total))}</strong></td><td><StatusBadge status={order.status} /></td><td><button className="text-button" onClick={onToggle}>{expanded ? "Fechar" : "Detalhes"}</button></td></tr>
     {expanded && <tr className="expanded-order"><td colSpan={7}><div className="order-detail-grid"><div><span className="detail-label">PRODUTOS</span>{order.itens.map((item) => <div className="detail-item" key={item.id}>{item.quantidade} × {item.produto?.nome ?? "Produto"} ({currency.format(Number(item.preco_unitario))} cada) <strong>{currency.format(Number(item.subtotal))}</strong></div>)}{order.observacoes && <p className="detail-notes">{order.observacoes}</p>}</div><div><span className="detail-label">CLIENTE E INSTALAÇÃO</span><p>{order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</p><p>Contato: {order.cliente?.telefone ?? "Não informado"} · {order.cliente?.email ?? "Sem e-mail"}</p><p>Técnico(s): {assignedNames ?? "Ainda não definido"}</p>
@@ -901,7 +900,7 @@ function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: {
   useEffect(() => { if (!selectedTech && tecnicos[0]) setSelectedTech(tecnicos[0].id); }, [selectedTech, tecnicos]);
   const selectedTechnician = tecnicos.find((tech) => tech.id === selectedTech);
   const installations = pedidos
-    .filter((order) => (order.tecnico_ids ?? [order.tecnico_id]).includes(selectedTech)
+    .filter((order) => order.tecnico_ids.includes(selectedTech)
       && ["agendado", "em_andamento"].includes(order.status)
       && order.data_instalacao
       && saoPauloDate(new Date(order.data_instalacao)) === today)
@@ -914,7 +913,7 @@ function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: {
       {installations.length === 0 ? <EmptyState title="Nenhuma instalação hoje" text="As instalações agendadas para hoje aparecerão aqui em ordem de horário." /> : <div className="schedule-list">
         {installations.map((order) => <article className="schedule-card" key={order.id}>
           <div className="schedule-card-date"><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { weekday: "short", timeZone: "America/Sao_Paulo" }).replace(".", "") : ""}</span><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}</strong><small>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : ""}</small></div>
-          <div className="schedule-card-main"><div className="schedule-card-heading"><strong>{order.cliente?.nome}</strong><StatusBadge status={order.status} /></div><span>⌖ {order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span><span>☎ {order.cliente?.telefone}</span><span>Técnicos: {order.tecnicos?.map((technician) => technician.nome).join(" + ") || order.tecnico?.nome || "Não atribuído"} · {order.duracao_instalacao_minutos ?? 60} min</span><div className="schedule-products">{order.itens.map((item) => `${item.quantidade} × ${item.produto?.nome ?? "Produto"}`).join(" · ")}</div></div>
+          <div className="schedule-card-main"><div className="schedule-card-heading"><strong>{order.cliente?.nome}</strong><StatusBadge status={order.status} /></div><span>⌖ {order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span><span>☎ {order.cliente?.telefone}</span><span>Técnicos: {order.tecnicos?.map((technician) => technician.nome).join(" + ") || "Não atribuído"} · {order.duracao_instalacao_minutos ?? 60} min</span><div className="schedule-products">{order.itens.map((item) => `${item.quantidade} × ${item.produto?.nome ?? "Produto"}`).join(" · ")}</div></div>
           <div className="schedule-card-action">{order.status === "agendado" ? <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "em_andamento")}>Iniciar instalação →</button> : <button className="button button-primary button-small" disabled={busy} onClick={() => void onStatusChange(order, "concluido")}>Concluir instalação ✓</button>}</div>
         </article>)}
       </div>}

@@ -6,7 +6,7 @@ Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agen
 
 ## Rodar localmente
 
-1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql`, `supabase/migrations/20261001142500_require_basic_client_address.sql`, `supabase/migrations/20261001143000_auth_and_store_profile.sql`, `supabase/migrations/20261001144500_route_optimization.sql`, `supabase/migrations/20261001144600_technician_skills_and_fixed_routes.sql` e `supabase/migrations/20261001144700_manage_technicians.sql` no SQL Editor. Em um projeto existente, execute somente as migrations ainda não aplicadas.
+1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql`, `supabase/migrations/20261001142500_require_basic_client_address.sql`, `supabase/migrations/20261001143000_auth_and_store_profile.sql`, `supabase/migrations/20261001144500_route_optimization.sql`, `supabase/migrations/20261001144600_technician_skills_and_fixed_routes.sql`, `supabase/migrations/20261001144700_manage_technicians.sql` e `supabase/migrations/20261001144800_remove_legacy_technician_column.sql` no SQL Editor. Em um projeto existente, execute somente as migrations ainda não aplicadas.
 2. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com as credenciais públicas do projeto.
 3. Instale as dependências com `npm install`.
 4. Inicie com `npm run dev`. Para validar a build de produção, execute `npm run build`.
@@ -15,11 +15,11 @@ A migration inicial cria e relaciona as tabelas, valida as transições de statu
 
 ## Estrutura e regras
 
-- `clientes` 1:N `pedidos`; a atribuição principal legada fica em `pedidos.tecnico_id`, enquanto `pedido_tecnicos` associa um ou dois técnicos a cada instalação.
+- `clientes` 1:N `pedidos`; `pedido_tecnicos` associa um ou dois técnicos a cada instalação.
 - `pedidos` 1:N `itens_pedido`; cada item referencia um produto e guarda o preço praticado no momento da venda. `pedido_tecnicos` permite atribuir até dois técnicos a uma instalação.
 - `subtotal` é uma coluna gerada (`quantidade × preço unitário`); um trigger soma os subtotais em `pedidos.valor_total`.
 - `criar_pedido_com_itens` insere o orçamento e seus itens dentro da mesma transação.
-- Os status só avançam por `orcamento → aprovado → agendado → em_andamento → concluido`. Orçamentos e pedidos aprovados podem ser cancelados. A instalação exige técnico e data.
+- Os status só avançam por `orcamento → aprovado → agendado → em_andamento → concluido`. Orçamentos e pedidos aprovados podem ser cancelados. A instalação exige equipe em `pedido_tecnicos` e data.
 - `historico_status` guarda cada status, inclusive o inicial.
 - Endereços são separados em rua, número, complemento opcional e bairro. Rua, número e bairro são obrigatórios para novos clientes e alterações de endereço; os campos opcionais cidade, estado e CEP não são armazenados. Registros antigos incompletos permanecem preservados até serem corrigidos.
 - A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. O agendamento exige equipe, data/hora futura e duração entre 15 e 480 minutos (padrão: 60). A transação valida que as especialidades da equipe cobrem todos os produtos.
@@ -50,11 +50,11 @@ Os arquivos importáveis estão em `n8n/workflows/`.
 ### Instalações do dia seguinte
 
 1. Importe `alertar-instalacoes-amanha.json`.
-2. Substitua os mesmos marcadores de projeto/chave/destino. Se o workflow já estiver configurado na sua instância, atualize a consulta para incluir a relação `pedido_tecnicos(tecnico:tecnicos(nome))` e o campo `duracao_instalacao_minutos`, para incluir toda a equipe no resumo.
+2. Substitua os mesmos marcadores de projeto/chave/destino. Se o workflow já estiver configurado na sua instância, atualize a consulta para incluir a relação `pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))` e o campo `duracao_instalacao_minutos`, para incluir toda a equipe no resumo. Não selecione `pedidos.tecnico_id`: a migration final remove essa coluna legada.
 3. O cron está configurado para as 08:00 (`America/Sao_Paulo`). O workflow consulta o endpoint REST do Supabase e envia um resumo se houver instalações no dia seguinte; sem instalações, não envia uma mensagem vazia.
 4. Ative o workflow. Para testar sem esperar o cron, use **Execute workflow** e confira o histórico de execução.
 
-Em ambos os workflows, configure o destino externo antes de ativar e considere associar um Error Workflow no n8n para notificar falhas de execução. Nunca use a chave `service_role` no frontend. A última migration restringe o banco a sessões autenticadas; a chave de serviço só deve ficar guardada como credencial privada no n8n.
+Em ambos os workflows, configure o destino externo antes de ativar e considere associar um Error Workflow no n8n para notificar falhas de execução. Nunca use a chave `service_role` no frontend. A migration de autenticação restringe o banco a sessões autenticadas; a chave de serviço só deve ficar guardada como credencial privada no n8n. Em bancos existentes, atualize primeiro a consulta do workflow ativo de instalações para remover a relação legada `pedidos_tecnico_id_fkey`; depois aplique a migration `20261001144800_remove_legacy_technician_column.sql`.
 
 ## Próximos passos para a entrega do teste
 

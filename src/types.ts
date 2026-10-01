@@ -63,7 +63,6 @@ export type ItemPedido = {
 export type Pedido = {
   id: string;
   cliente_id: string;
-  tecnico_id: string | null;
   status: PedidoStatus;
   data_instalacao: string | null;
   duracao_instalacao_minutos: number;
@@ -76,7 +75,6 @@ export type Pedido = {
 
 export type PedidoDetalhado = Pedido & {
   cliente?: Cliente;
-  tecnico?: Tecnico;
   tecnicos?: Tecnico[];
   itens: (ItemPedido & { produto?: Produto })[];
 };

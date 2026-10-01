@@ -19,7 +19,7 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "select", "value": "id,data_instalacao,duracao_instalacao_minutos,valor_total,cliente:clientes(nome,rua,numero,complemento,bairro),tecnico:tecnicos!pedidos_tecnico_id_fkey(nome),pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))" },
+            { "name": "select", "value": "id,data_instalacao,duracao_instalacao_minutos,valor_total,cliente:clientes(nome,rua,numero,complemento,bairro),pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))" },
             { "name": "status", "value": "eq.agendado" },
             { "name": "data_instalacao", "value": "=gte.{{$now.setZone('America/Sao_Paulo').plus({ days: 1 }).startOf('day').toISO()}}" },
             { "name": "data_instalacao", "value": "=lt.{{$now.setZone('America/Sao_Paulo').plus({ days: 2 }).startOf('day').toISO()}}" }
@@ -42,7 +42,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const instalacoes = $input.all().map(({ json }) => {\n  const cliente = Array.isArray(json.cliente) ? json.cliente[0] : json.cliente;\n  const tecnico = Array.isArray(json.tecnico) ? json.tecnico[0] : json.tecnico;\n  const assignments = Array.isArray(json.pedido_tecnicos) ? json.pedido_tecnicos : [];\n  const nomesTecnicos = [...new Set([\n    ...assignments.map((assignment) => {\n      const assigned = Array.isArray(assignment.tecnico) ? assignment.tecnico[0] : assignment.tecnico;\n      return assigned?.nome;\n    }),\n    tecnico?.nome\n  ].filter(Boolean))];\n  const endereco = [[cliente?.rua, cliente?.numero].filter(Boolean).join(', '), cliente?.complemento, cliente?.bairro].filter(Boolean).join(' · ');\n  return {\n    pedido_id: json.id,\n    horario: new Date(json.data_instalacao).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),\n    duracao_minutos: json.duracao_instalacao_minutos ?? 60,\n    cliente: cliente?.nome ?? 'Cliente não encontrado',\n    endereco: endereco || 'Endereço não informado',\n    tecnicos: nomesTecnicos.length ? nomesTecnicos.join(' + ') : 'Técnicos não atribuídos'\n  };\n});\nreturn instalacoes.length ? [{ json: { evento: 'instalacoes_de_amanha', quantidade: instalacoes.length, instalacoes } }] : [];"
+        "jsCode": "const instalacoes = $input.all().map(({ json }) => {\n  const cliente = Array.isArray(json.cliente) ? json.cliente[0] : json.cliente;\n  const assignments = Array.isArray(json.pedido_tecnicos) ? json.pedido_tecnicos : [];\n  const nomesTecnicos = [...new Set(\n    assignments.map((assignment) => {\n      const assigned = Array.isArray(assignment.tecnico) ? assignment.tecnico[0] : assignment.tecnico;\n      return assigned?.nome;\n    }).filter(Boolean)\n  )];\n  const endereco = [[cliente?.rua, cliente?.numero].filter(Boolean).join(', '), cliente?.complemento, cliente?.bairro].filter(Boolean).join(' · ');\n  return {\n    pedido_id: json.id,\n    horario: new Date(json.data_instalacao).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),\n    duracao_minutos: json.duracao_instalacao_minutos ?? 60,\n    cliente: cliente?.nome ?? 'Cliente não encontrado',\n    endereco: endereco || 'Endereço não informado',\n    tecnicos: nomesTecnicos.length ? nomesTecnicos.join(' + ') : 'Técnicos não atribuídos'\n  };\n});\nreturn instalacoes.length ? [{ json: { evento: 'instalacoes_de_amanha', quantidade: instalacoes.length, instalacoes } }] : [];"
       },
       "id": "fe0a4983-4488-4dca-9dce-96752a44bf86",
       "name": "Montar resumo",
