@@ -241,11 +241,11 @@ begin
   end if;
 
   insert into public.pedidos (id, cliente_id, observacoes, created_at) values
-    ('40000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'Orçamento para monitoramento da entrada.'),
-    ('40000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'Avaliar compatibilidade com o portão existente.'),
+    ('40000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'Orçamento para monitoramento da entrada.', now()),
+    ('40000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'Avaliar compatibilidade com o portão existente.', now()),
     ('40000000-0000-4000-8000-000000000003', '20000000-0000-4000-8000-000000000003', 'Instalar câmera e sensor no acesso lateral.', now() - interval '2 days'),
     ('40000000-0000-4000-8000-000000000004', '20000000-0000-4000-8000-000000000004', 'Troca de fechadura e configuração.', now() - interval '3 days'),
-    ('40000000-0000-4000-8000-000000000005', '20000000-0000-4000-8000-000000000005', 'Agendar instalação de iluminação da sala.'),
+    ('40000000-0000-4000-8000-000000000005', '20000000-0000-4000-8000-000000000005', 'Agendar instalação de iluminação da sala.', now()),
     ('40000000-0000-4000-8000-000000000006', '20000000-0000-4000-8000-000000000001', 'Automação da iluminação e assistente.', now() - interval '6 days'),
     ('40000000-0000-4000-8000-000000000007', '20000000-0000-4000-8000-000000000002', 'Instalação concluída e testada.', now() - interval '10 days'),
     ('40000000-0000-4000-8000-000000000008', '20000000-0000-4000-8000-000000000003', 'Cliente optou por aguardar a reforma.', now() - interval '12 days');
