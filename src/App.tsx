@@ -462,9 +462,14 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
   onCreate: (clienteId: string, observacoes: string, itens: OrderLine[]) => Promise<ActionResult<void>>;
   onCreateClient: (values: ClienteInput) => Promise<ActionResult<string>>;
 }) {
-  const [formOpen, setFormOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [lines, setLines] = useState<OrderLine[]>([{ produto_id: "", quantidade: 1 }]);
   const [newClientMode, setNewClientMode] = useState(false);
+  const resetForm = () => {
+    formRef.current?.reset();
+    setLines([{ produto_id: "", quantidade: 1 }]);
+    setNewClientMode(false);
+  };
   const currentTotal = lines.reduce((sum, line) => {
     const product = produtos.find((item) => item.id === line.produto_id);
     return sum + (product ? product.preco_unitario * line.quantidade : 0);
@@ -484,15 +489,13 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
     if (!clienteId || orderLines.length === 0 || orderLines.some((line) => line.quantidade < 1)) return;
     const result = await onCreate(clienteId, observacoes, orderLines);
     if (!result.ok) return;
-    setLines([{ produto_id: "", quantidade: 1 }]);
-    setFormOpen(false);
-    setNewClientMode(false);
+    resetForm();
   };
 
   return <>
-    <PageHeading eyebrow="VENDAS" title="Pedidos" description="Monte um orçamento para um cliente, com os equipamentos e quantidades necessários." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Criar orçamento</button>} />
-    {formOpen && <form className="panel form-panel order-form" onSubmit={(event) => void submit(event)}>
-      <div className="panel-heading"><div><h2>Novo orçamento</h2><p>Adicione um cliente e um ou mais produtos.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
+    <PageHeading eyebrow="VENDAS" title="Pedidos" description="Monte um orçamento para um cliente, com os equipamentos e quantidades necessários." action={<button className="button button-secondary" onClick={resetForm}>↺ Limpar campos</button>} />
+    <form ref={formRef} className="panel form-panel order-form" onSubmit={(event) => void submit(event)}>
+      <div className="panel-heading"><div><h2>Novo orçamento</h2><p>Adicione um cliente e um ou mais produtos.</p></div></div>
       <div className="form-grid"><Field label="Cliente"><select name="cliente_id" required defaultValue="" onChange={(event) => setNewClientMode(event.target.value === "novo")}><option value="" disabled>Selecione um cliente</option>{clientes.map((client) => <option key={client.id} value={client.id}>{client.nome} · {client.telefone}</option>)}<option value="novo">＋ Cadastrar cliente agora</option></select></Field><Field label="Observações"><input name="observacoes" placeholder="Detalhes importantes do serviço..." /></Field></div>
       {newClientMode && <div className="inline-client-form"><strong>Novo cliente para este orçamento</strong><div className="form-grid"><Field label="Nome completo"><input name="novo_nome" required /></Field><Field label="WhatsApp / telefone"><input name="novo_telefone" type="tel" required /></Field><Field label="E-mail (opcional)"><input name="novo_email" type="email" /></Field><ClientAddressFields prefix="novo_" /></div></div>}
       <div className="order-lines-heading"><strong>Produtos do pedido</strong><button type="button" className="text-button" disabled={!lines[lines.length - 1]?.produto_id} onClick={() => setLines((current) => [...current, { produto_id: "", quantidade: 1 }])}>＋ Adicionar produto</button></div>
@@ -504,8 +507,8 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
         });
       }}><option value="" disabled>Selecione um produto</option>{produtos.filter((item) => item.ativo).map((item) => <option key={item.id} value={item.id}>{item.nome} · {currency.format(Number(item.preco_unitario))}</option>)}</select><label className="quantity-input"><span>Qtd.</span><input type="number" min="1" step="1" required value={line.quantidade} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantidade: Math.max(1, Number(event.target.value) || 1) } : item))} /></label><strong className="line-subtotal">{currency.format(product ? product.preco_unitario * line.quantidade : 0)}</strong>{lines.length > 1 && <button type="button" className="icon-button remove-line" aria-label="Remover produto" onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>}</div>; })}
       <div className="order-total"><span>Total do orçamento</span><strong>{currency.format(currentTotal)}</strong></div>
-      <div className="form-actions"><button type="button" className="button button-secondary" onClick={() => setFormOpen(false)}>Cancelar</button><button className="button button-primary" disabled={busy || currentTotal <= 0}>Salvar como orçamento</button></div>
-    </form>}
+      <div className="form-actions"><button type="button" className="button button-secondary" onClick={resetForm}>Limpar campos</button><button className="button button-primary" disabled={busy || currentTotal <= 0}>Salvar como orçamento</button></div>
+    </form>
   </>;
 }
 
