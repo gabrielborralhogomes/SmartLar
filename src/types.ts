@@ -8,6 +8,7 @@ export type PedidoStatus =
 
 export type Cliente = {
   id: string;
+  ativo: boolean;
   nome: string;
   telefone: string;
   email: string | null;
@@ -21,7 +22,7 @@ export type Cliente = {
   created_at: string;
 };
 
-export type ClienteInput = Omit<Cliente, "id" | "created_at">;
+export type ClienteInput = Omit<Cliente, "id" | "created_at" | "ativo">;
 
 export type Tecnico = {
   id: string;

@@ -235,7 +235,10 @@ function App() {
               {page === "clientes" && <ClientsPage clientes={clientes} pedidos={pedidos} onSave={(values) => runAction(async () => {
                 const { error } = await db.from("clientes").insert(values);
                 if (error) throw error;
-              }, "Cliente cadastrado com sucesso.")} />}
+              }, "Cliente cadastrado com sucesso.")} onActiveChange={(id, ativo) => runAction(async () => {
+                const { error } = await db.from("clientes").update({ ativo }).eq("id", id);
+                if (error) throw error;
+              }, ativo ? "Cliente reativado." : "Cliente excluído; o histórico de pedidos foi preservado.")} />}
               {page === "produtos" && <ProductsPage produtos={produtos} onSave={(values) => runAction(async () => {
                 const { error } = await db.from("produtos").insert(values);
                 if (error) throw error;
@@ -374,11 +377,14 @@ function Dashboard({ pedidos, onNavigate }: { pedidos: PedidoDetalhado[]; onNavi
   </>;
 }
 
-function ClientsPage({ clientes, pedidos, onSave }: { clientes: Cliente[]; pedidos: PedidoDetalhado[]; onSave: (values: ClienteInput) => Promise<ActionResult<void>> }) {
+function ClientsPage({ clientes, pedidos, onSave, onActiveChange }: { clientes: Cliente[]; pedidos: PedidoDetalhado[]; onSave: (values: ClienteInput) => Promise<ActionResult<void>>; onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>> }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const visible = clientes.filter((client) => `${client.nome} ${client.telefone} ${client.email ?? ""} ${getClientAddress(client)}`.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")));
+  const [showInactive, setShowInactive] = useState(false);
+  const isClientActive = (client: Cliente) => client.ativo !== false;
+  const activeClients = clientes.filter(isClientActive);
+  const visible = clientes.filter((client) => isClientActive(client) !== showInactive && `${client.nome} ${client.telefone} ${client.email ?? ""} ${getClientAddress(client)}`.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")));
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -396,13 +402,17 @@ function ClientsPage({ clientes, pedidos, onSave }: { clientes: Cliente[]; pedid
       <div className="form-grid"><Field label="Nome completo"><input name="nome" required /></Field><Field label="WhatsApp / telefone"><input name="telefone" type="tel" required /></Field><Field label="E-mail (opcional)"><input name="email" type="email" /></Field><ClientAddressFields /></div><div className="form-actions"><button className="button button-primary">Salvar cliente</button></div>
     </form>}
     <section className="panel">
-      <div className="list-toolbar"><div><h2>Todos os clientes <span className="count-pill">{clientes.length}</span></h2><p>Pesquise por nome, telefone ou endereço.</p></div><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente..." /></label></div>
-      <div className="table-wrap"><table><thead><tr><th>CLIENTE</th><th>TELEFONE</th><th>E-MAIL</th><th>ENDEREÇO</th><th>PEDIDOS</th><th /></tr></thead><tbody>
+      <div className="list-toolbar"><div><h2>Clientes {showInactive ? "excluídos" : "ativos"} <span className="count-pill">{showInactive ? clientes.length - activeClients.length : activeClients.length}</span></h2><p>Pesquise por nome, telefone ou endereço.</p></div><div className="client-list-filters"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente..." /></label><button className="button button-secondary" onClick={() => setShowInactive(!showInactive)}>{showInactive ? "Ver clientes ativos" : "Ver excluídos"}</button></div></div>
+      <div className="table-wrap"><table><thead><tr><th>CLIENTE</th><th>TELEFONE</th><th>E-MAIL</th><th>ENDEREÇO</th><th>PEDIDOS</th><th>AÇÕES</th></tr></thead><tbody>
         {visible.map((client) => {
           const clientOrders = pedidos.filter((order) => order.cliente_id === client.id);
+          const isActive = isClientActive(client);
           return <Fragment key={client.id}>
             <tr>
-              <td><div className="table-client"><div className="client-avatar">{client.nome.slice(0, 1)}</div><strong>{client.nome}</strong></div></td><td>{client.telefone}</td><td>{client.email || "—"}</td><td className="address-cell" title={getClientAddress(client)}>{getClientAddress(client)}</td><td><span className="count-pill">{clientOrders.length}</span></td><td><button className="text-button" onClick={() => setSelected(selected === client.id ? null : client.id)}>{selected === client.id ? "Fechar" : "Ver pedidos"}</button></td>
+              <td><div className="table-client"><div className="client-avatar">{client.nome.slice(0, 1)}</div><strong>{client.nome}</strong></div></td><td>{client.telefone}</td><td>{client.email || "—"}</td><td className="address-cell" title={getClientAddress(client)}>{getClientAddress(client)}</td><td><span className="count-pill">{clientOrders.length}</span></td><td><div className="client-actions"><button className="text-button" onClick={() => setSelected(selected === client.id ? null : client.id)}>{selected === client.id ? "Fechar" : "Ver pedidos"}</button><button className={`text-button ${isActive ? "client-delete" : ""}`} onClick={() => {
+                if (isActive && !window.confirm(`Excluir ${client.nome}? Os pedidos já registrados serão preservados.`)) return;
+                void onActiveChange(client.id, !isActive);
+              }}>{isActive ? "Excluir" : "Restaurar"}</button></div></td>
             </tr>
             {selected === client.id && <tr className="client-details-row"><td colSpan={6}>
               <div className="selected-client-orders"><strong>Pedidos de {client.nome}</strong>
@@ -494,7 +504,7 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
     <PageHeading eyebrow="VENDAS" title="Pedidos" description="Monte um orçamento para um cliente, com os equipamentos e quantidades necessários." action={<button className="button button-secondary" onClick={resetForm}>↺ Limpar campos</button>} />
     <form ref={formRef} className="panel form-panel order-form" onSubmit={(event) => void submit(event)}>
       <div className="panel-heading"><div><h2>Novo orçamento</h2><p>Adicione um cliente e um ou mais produtos.</p></div></div>
-      <div className="form-grid"><Field label="Cliente"><select name="cliente_id" required defaultValue="" onChange={(event) => setNewClientMode(event.target.value === "novo")}><option value="" disabled>Selecione um cliente</option>{clientes.map((client) => <option key={client.id} value={client.id}>{client.nome} · {client.telefone}</option>)}<option value="novo">＋ Cadastrar cliente agora</option></select></Field><Field label="Observações"><input name="observacoes" placeholder="Detalhes importantes do serviço..." /></Field></div>
+      <div className="form-grid"><Field label="Cliente"><select name="cliente_id" required defaultValue="" onChange={(event) => setNewClientMode(event.target.value === "novo")}><option value="" disabled>Selecione um cliente</option>{clientes.filter((client) => client.ativo !== false).map((client) => <option key={client.id} value={client.id}>{client.nome} · {client.telefone}</option>)}<option value="novo">＋ Cadastrar cliente agora</option></select></Field><Field label="Observações"><input name="observacoes" placeholder="Detalhes importantes do serviço..." /></Field></div>
       {newClientMode && <div className="inline-client-form"><strong>Novo cliente para este orçamento</strong><div className="form-grid"><Field label="Nome completo"><input name="novo_nome" required /></Field><Field label="WhatsApp / telefone"><input name="novo_telefone" type="tel" required /></Field><Field label="E-mail (opcional)"><input name="novo_email" type="email" /></Field><ClientAddressFields prefix="novo_" /></div></div>}
       <div className="order-lines-heading"><strong>Produtos do pedido</strong><button type="button" className="text-button" disabled={!lines[lines.length - 1]?.produto_id} onClick={() => setLines((current) => [...current, { produto_id: "", quantidade: 1 }])}>＋ Adicionar produto</button></div>
       {lines.map((line, index) => { const product = produtos.find((item) => item.id === line.produto_id); return <div className="order-line" key={index}><select aria-label={`Produto ${index + 1}`} required={index < lines.length - 1 || Boolean(line.produto_id)} value={line.produto_id} onChange={(event) => {

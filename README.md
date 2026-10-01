@@ -6,7 +6,7 @@ Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agen
 
 ## Rodar localmente
 
-1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql` e `supabase/migrations/20261001141500_remove_legacy_endereco.sql` no SQL Editor. Se o projeto já aplicou as migrations anteriores, execute somente a última.
+1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql` e `supabase/migrations/20261001142000_soft_delete_client.sql` no SQL Editor. Se o projeto já aplicou as migrations anteriores, execute somente a última.
 2. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com as credenciais públicas do projeto.
 3. Instale as dependências com `npm install`.
 4. Inicie com `npm run dev`. Para validar a build de produção, execute `npm run build`.
@@ -24,6 +24,7 @@ A migration inicial cria e relaciona as tabelas, valida as transições de statu
 - Endereços são separados em rua, número, complemento, bairro, cidade, estado e CEP. A migration de remoção preserva como `rua` o texto legado dos registros que ainda não tenham esse campo preenchido.
 - A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. A data e o técnico são obrigatórios ao agendar.
 - Produtos são excluídos do catálogo por desativação (`ativo = false`), preservando itens e preços dos pedidos históricos.
+- Clientes também são excluídos por desativação (`ativo = false`), preservando os pedidos existentes. Clientes excluídos podem ser consultados e restaurados na tela de clientes.
 
 ## n8n
 
