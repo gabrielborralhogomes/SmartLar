@@ -28,7 +28,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "SUA-CHAVE-ANON" },
+            { "name": "apikey", "value": "SUA-CHAVE-SERVICE-ROLE" },
             { "name": "Authorization", "value": "Bearer SUA-CHAVE-ANON" }
           ]
         },

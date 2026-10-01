@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
-import type { Cliente, ClienteInput, ItemPedido, Pedido, PedidoDetalhado, PedidoStatus, Produto, Tecnico } from "./types";
+import type { Cliente, ClienteInput, ItemPedido, Pedido, PedidoDetalhado, PedidoStatus, Produto, StoreProfile, Tecnico } from "./types";
 
-type Page = "dashboard" | "clientes" | "produtos" | "pedidos" | "gestao" | "agenda";
+type Page = "dashboard" | "clientes" | "produtos" | "pedidos" | "gestao" | "agenda" | "configuracoes";
 type OrderLine = { produto_id: string; quantidade: number };
 type ActionResult<T> = { ok: true; value: T } | { ok: false };
 
@@ -82,7 +83,12 @@ function StatusBadge({ status }: { status: PedidoStatus }) {
 
 function App() {
   const db = supabase;
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [page, setPage] = useState<Page>("dashboard");
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profile, setProfile] = useState<StoreProfile | null>(null);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [tecnicos, setTecnicos] = useState<Tecnico[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -93,18 +99,50 @@ function App() {
   const [successMessage, setSuccessMessage] = useState("");
   const loadedOnce = useRef(false);
 
+  useEffect(() => {
+    if (!db) {
+      setAuthLoading(false);
+      return;
+    }
+    let mounted = true;
+    const { data: authListener } = db.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthLoading(false);
+      loadedOnce.current = false;
+      if (!nextSession) {
+        setClientes([]);
+        setTecnicos([]);
+        setProdutos([]);
+        setPedidos([]);
+        setProfile(null);
+        setPage("dashboard");
+      }
+    });
+    void db.auth.getSession().then(({ data, error }) => {
+      if (!mounted) return;
+      if (error) setAuthError(error.message);
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [db]);
+
   const reload = useCallback(async () => {
-    if (!db) return;
+    if (!db || !session) return;
     if (!loadedOnce.current) setLoading(true);
     setErrorMessage("");
-    const [clientsResult, techniciansResult, productsResult, ordersResult, itemsResult] = await Promise.all([
+    const [clientsResult, techniciansResult, productsResult, ordersResult, itemsResult, profileResult] = await Promise.all([
       db.from("clientes").select("*").order("nome"),
       db.from("tecnicos").select("*").order("nome"),
       db.from("produtos").select("*").order("categoria").order("nome"),
       db.from("pedidos").select("*").order("created_at", { ascending: false }),
       db.from("itens_pedido").select("*"),
+      db.from("configuracao_loja").select("*").eq("id", 1).single(),
     ]);
-    const firstError = clientsResult.error ?? techniciansResult.error ?? productsResult.error ?? ordersResult.error ?? itemsResult.error;
+    const firstError = clientsResult.error ?? techniciansResult.error ?? productsResult.error ?? ordersResult.error ?? itemsResult.error ?? profileResult.error;
     if (firstError) {
       setErrorMessage(`Não foi possível carregar os dados: ${firstError.message}`);
       loadedOnce.current = true;
@@ -127,6 +165,7 @@ function App() {
     setClientes(clients);
     setTecnicos(technicians);
     setProdutos(products);
+    setProfile(profileResult.data as StoreProfile);
     setPedidos(((ordersResult.data ?? []) as Pedido[]).map((order) => ({
       ...order,
       cliente: clientById.get(order.cliente_id),
@@ -135,10 +174,11 @@ function App() {
     })));
     loadedOnce.current = true;
     setLoading(false);
-  }, [db]);
+  }, [db, session]);
 
   useEffect(() => {
-    void reload();
+    if (session) void reload();
+    else setLoading(false);
   }, [reload]);
 
   const runAction = async <T,>(action: () => Promise<T>, success?: string): Promise<ActionResult<T>> => {
@@ -178,6 +218,14 @@ function App() {
     );
   }
 
+  if (authLoading) {
+    return <main className="setup-screen"><div className="loading-state"><span className="spinner" />Verificando sessão...</div></main>;
+  }
+
+  if (!session) {
+    return <LoginPage db={db} initialError={authError} onClearError={() => setAuthError("")} />;
+  }
+
   const navItems: { id: Page; title: string; icon: string }[] = [
     { id: "dashboard", title: "Visão geral", icon: "⌂" },
     { id: "clientes", title: "Clientes", icon: "♙" },
@@ -203,15 +251,25 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-avatar">RF</div>
-          <div className="sidebar-user"><strong>Rafael Ferreira</strong><span>Administrador</span></div>
-          <span className="online-dot" title="Sistema conectado" />
+          <button className="profile-trigger" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen(!profileMenuOpen)}>
+            <span className="sidebar-avatar">{(profile?.nome || "Rafael").slice(0, 1).toLocaleUpperCase("pt-BR")}</span>
+            <span className="sidebar-user"><strong>{profile?.nome || "Rafael Ferreira"}</strong><span>{session.user.email}</span></span>
+            <span className="online-dot" title="Sessão ativa" />
+          </button>
+          {profileMenuOpen && <div className="profile-menu">
+            <button onClick={() => { setPage("configuracoes"); setProfileMenuOpen(false); }}>⚙ Configurações</button>
+            <button className="logout-action" onClick={async () => {
+              const { error } = await db.auth.signOut();
+              if (error) setErrorMessage(`Não foi possível sair: ${error.message}`);
+              else setProfileMenuOpen(false);
+            }}>↪ Sair</button>
+          </div>}
         </div>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
-          <div className="breadcrumbs">SmartLar <span>/</span> {navItems.find((item) => item.id === page)?.title}</div>
+          <div className="breadcrumbs">SmartLar <span>/</span> {navItems.find((item) => item.id === page)?.title ?? "Configurações"}</div>
           <div className="topbar-right"><span className="live-dot" /> Banco conectado <span className="topbar-divider" />{new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(new Date())}</div>
         </header>
         <div className="page-content">
@@ -219,7 +277,7 @@ function App() {
           {successMessage && <div className="notice notice-success" role="status">{successMessage}<button onClick={() => setSuccessMessage("")} aria-label="Fechar aviso">×</button></div>}
           {loading ? <div className="loading-state"><span className="spinner" />Carregando informações do Supabase...</div> : (
             <>
-              {page === "dashboard" && <Dashboard pedidos={pedidos} onNavigate={setPage} />}
+              {page === "dashboard" && <Dashboard pedidos={pedidos} ownerName={profile?.nome || "Rafael"} onNavigate={setPage} />}
               {page === "clientes" && <ClientsPage clientes={clientes} pedidos={pedidos} onSave={(values) => runAction(async () => {
                 const { error } = await db.from("clientes").insert(values);
                 if (error) throw error;
@@ -267,6 +325,25 @@ function App() {
                   const { error } = await db.from("pedidos").update({ status }).eq("id", pedido.id);
                   if (error) throw error;
                 }, `Instalação marcada como "${statusLabel[status]}".`)} />}
+              {page === "configuracoes" && profile && <ProfileSettingsPage profile={profile} loginEmail={session.user.email ?? ""}
+                busy={busy}
+                onSave={(values) => runAction(async () => {
+                  const { error } = await db.from("configuracao_loja").upsert({ id: 1, ...values }).select().single();
+                  if (error) throw error;
+                }, "Configurações da loja salvas.")} onChangeEmail={async (email) => {
+                  setBusy(true);
+                  setErrorMessage("");
+                  setSuccessMessage("");
+                  try {
+                    const { error } = await db.auth.updateUser({ email });
+                    if (error) throw error;
+                    setSuccessMessage("Pedido de alteração enviado. Confirme o novo e-mail pela mensagem recebida; até a confirmação, o login atual continua válido.");
+                  } catch (error) {
+                    setErrorMessage(`Não foi possível solicitar a alteração: ${asErrorMessage(error)}`);
+                  } finally {
+                    setBusy(false);
+                  }
+                }} />}
             </>
           )}
         </div>
@@ -275,11 +352,99 @@ function App() {
   );
 }
 
+function LoginPage({ db, initialError, onClearError }: { db: NonNullable<typeof supabase>; initialError: string; onClearError: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(initialError);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setErrorMessage("");
+    onClearError();
+    try {
+      const { error } = await db.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) throw error;
+    } catch (error) {
+      setErrorMessage(asErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <main className="setup-screen">
+    <form className="setup-card auth-card" onSubmit={(event) => void submit(event)}>
+      <div className="brand-mark">S</div>
+      <p className="eyebrow">SMARTLAR · GESTÃO</p>
+      <h1>Entrar</h1>
+      <p>Acesse sua conta para abrir o painel da loja.</p>
+      {errorMessage && <div className="notice notice-error" role="alert">{errorMessage}</div>}
+      <div className="auth-fields">
+        <Field label="E-mail"><input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
+        <Field label="Senha"><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
+      </div>
+      <button className="button button-primary auth-submit" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
+      <div className="setup-note">A conta inicial deve ser criada pelo administrador em Authentication → Users no Supabase.</div>
+    </form>
+  </main>;
+}
+
+function ProfileSettingsPage({ profile, loginEmail, busy, onSave, onChangeEmail }: {
+  profile: StoreProfile;
+  loginEmail: string;
+  busy: boolean;
+  onSave: (values: Omit<StoreProfile, "id" | "updated_at">) => Promise<ActionResult<void>>;
+  onChangeEmail: (email: string) => Promise<void>;
+}) {
+  const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const result = await onSave({
+      nome: String(form.get("nome")).trim(),
+      telefone: String(form.get("telefone")).trim() || null,
+      rua: String(form.get("rua")).trim(),
+      numero: String(form.get("numero")).trim(),
+      complemento: String(form.get("complemento")).trim() || null,
+      bairro: String(form.get("bairro")).trim(),
+    });
+    if (!result.ok) return;
+  };
+
+  const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email")).trim();
+    if (email && email !== loginEmail) await onChangeEmail(email);
+  };
+
+  return <>
+    <PageHeading eyebrow="PERFIL" title="Configurações" description="Atualize os dados do Rafael e o endereço da loja." />
+    <form className="panel form-panel profile-settings-form" onSubmit={(event) => void submitProfile(event)}>
+      <div className="panel-heading"><div><h2>Dados da loja</h2><p>Nome, contato e localização exibidos no painel.</p></div></div>
+      <div className="form-grid">
+        <Field label="Nome"><input name="nome" defaultValue={profile.nome} required /></Field>
+        <Field label="Contato / telefone"><input name="telefone" type="tel" defaultValue={profile.telefone ?? ""} /></Field>
+        <Field label="Rua"><input name="rua" defaultValue={profile.rua ?? ""} required /></Field>
+        <Field label="Número"><input name="numero" defaultValue={profile.numero ?? ""} required /></Field>
+        <Field label="Complemento (opcional)"><input name="complemento" defaultValue={profile.complemento ?? ""} /></Field>
+        <Field label="Bairro"><input name="bairro" defaultValue={profile.bairro ?? ""} required /></Field>
+      </div>
+      <div className="form-actions"><button className="button button-primary" disabled={busy}>Salvar configurações</button></div>
+    </form>
+    <form className="panel form-panel profile-settings-form" onSubmit={(event) => void submitEmail(event)}>
+      <div className="panel-heading"><div><h2>E-mail de login</h2><p>A alteração só terá efeito depois da confirmação enviada ao novo endereço.</p></div></div>
+      <div className="form-grid"><Field label="Novo e-mail"><input name="email" type="email" defaultValue={loginEmail} required /></Field></div>
+      <div className="form-actions"><button className="button button-secondary" disabled={busy}>Solicitar alteração de e-mail</button></div>
+    </form>
+  </>;
+}
+
 function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
   return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="heading-description">{description}</p></div>{action}</div>;
 }
 
-function Dashboard({ pedidos, onNavigate }: { pedidos: PedidoDetalhado[]; onNavigate: (page: Page) => void }) {
+function Dashboard({ pedidos, ownerName, onNavigate }: { pedidos: PedidoDetalhado[]; ownerName: string; onNavigate: (page: Page) => void }) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const startOfMonth = new Date();
@@ -321,7 +486,7 @@ function Dashboard({ pedidos, onNavigate }: { pedidos: PedidoDetalhado[]; onNavi
   ];
 
   return <>
-    <PageHeading eyebrow="RESUMO DA OPERAÇÃO" title={`${greeting}, Rafael`} description="Aqui está o resumo da operação da SmartLar." action={<button className="button button-primary" onClick={() => onNavigate("pedidos")}><span>＋</span> Novo orçamento</button>} />
+    <PageHeading eyebrow="RESUMO DA OPERAÇÃO" title={`${greeting}, ${ownerName.split(" ")[0]}`} description="Aqui está o resumo da operação da SmartLar." action={<button className="button button-primary" onClick={() => onNavigate("pedidos")}><span>＋</span> Novo orçamento</button>} />
     <section className="metrics-grid">{metrics.map((metric) => <article className="metric-card" key={metric.label}>
       <div className={`metric-icon ${metric.color}`}>{metric.icon}</div><div className="metric-label">{metric.label}</div><strong>{metric.value}</strong><span className="metric-note">{metric.note}</span>
     </article>)}</section>

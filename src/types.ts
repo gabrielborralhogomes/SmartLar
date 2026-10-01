@@ -21,6 +21,17 @@ export type Cliente = {
 
 export type ClienteInput = Omit<Cliente, "id" | "created_at" | "ativo">;
 
+export type StoreProfile = {
+  id: number;
+  nome: string;
+  telefone: string | null;
+  rua: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  updated_at: string;
+};
+
 export type Tecnico = {
   id: string;
   nome: string;

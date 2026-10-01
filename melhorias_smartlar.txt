@@ -1,3 +1,5 @@
 8 - PENDENTE: os campos de endereço estruturado já foram adicionados, mas a coluna antiga `endereco` ainda existe no Supabase. Execute `supabase/migrations/20261001141500_remove_legacy_endereco.sql` no SQL Editor para preservar os valores antigos e remover a coluna. Em seguida, execute `supabase/migrations/20261001142500_require_basic_client_address.sql` para remover cidade, estado e CEP e validar rua, número e bairro obrigatórios.
 
 PENDENTE ADICIONAL (pedido posterior): execute `supabase/migrations/20261001142000_soft_delete_client.sql` no SQL Editor para ativar exclusão/restauração lógica de clientes.
+
+PENDENTE ADICIONAL (login e perfil): crie a conta do Rafael em **Authentication → Users** e execute `supabase/migrations/20261001143000_auth_and_store_profile.sql` para exigir login e habilitar configurações da loja. Desative os cadastros públicos e atualize as credenciais REST dos workflows n8n antes de executar a migration.

@@ -19,7 +19,7 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "select", "value": "id,data_instalacao,valor_total,cliente:clientes(nome,endereco),tecnico:tecnicos(nome)" },
+            { "name": "select", "value": "id,data_instalacao,valor_total,cliente:clientes(nome,rua,numero,complemento,bairro),tecnico:tecnicos(nome)" },
             { "name": "status", "value": "eq.agendado" },
             { "name": "data_instalacao", "value": "=gte.{{$now.setZone('America/Sao_Paulo').plus({ days: 1 }).startOf('day').toISO()}}" },
             { "name": "data_instalacao", "value": "=lt.{{$now.setZone('America/Sao_Paulo').plus({ days: 2 }).startOf('day').toISO()}}" }
@@ -28,7 +28,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "SUA-CHAVE-ANON" },
+            { "name": "apikey", "value": "SUA-CHAVE-SERVICE-ROLE" },
             { "name": "Authorization", "value": "Bearer SUA-CHAVE-ANON" }
           ]
         },
@@ -42,7 +42,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const instalacoes = $input.all().map(({ json }) => {\n  const cliente = Array.isArray(json.cliente) ? json.cliente[0] : json.cliente;\n  const tecnico = Array.isArray(json.tecnico) ? json.tecnico[0] : json.tecnico;\n  return {\n    pedido_id: json.id,\n    horario: json.data_instalacao,\n    cliente: cliente?.nome ?? 'Cliente não encontrado',\n    endereco: cliente?.endereco ?? 'Endereço não informado',\n    tecnico: tecnico?.nome ?? 'Técnico não atribuído'\n  };\n});\nreturn instalacoes.length ? [{ json: { evento: 'instalacoes_de_amanha', quantidade: instalacoes.length, instalacoes } }] : [];"
+        "jsCode": "const instalacoes = $input.all().map(({ json }) => {\n  const cliente = Array.isArray(json.cliente) ? json.cliente[0] : json.cliente;\n  const tecnico = Array.isArray(json.tecnico) ? json.tecnico[0] : json.tecnico;\n  const endereco = [[cliente?.rua, cliente?.numero].filter(Boolean).join(', '), cliente?.complemento, cliente?.bairro].filter(Boolean).join(' · ');\n  return {\n    pedido_id: json.id,\n    horario: json.data_instalacao,\n    cliente: cliente?.nome ?? 'Cliente não encontrado',\n    endereco: endereco || 'Endereço não informado',\n    tecnico: tecnico?.nome ?? 'Técnico não atribuído'\n  };\n});\nreturn instalacoes.length ? [{ json: { evento: 'instalacoes_de_amanha', quantidade: instalacoes.length, instalacoes } }] : [];"
       },
       "id": "fe0a4983-4488-4dca-9dce-96752a44bf86",
       "name": "Montar resumo",

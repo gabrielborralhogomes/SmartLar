@@ -6,7 +6,7 @@ Aplicação web para acompanhar clientes, catálogo, orçamentos, pedidos e agen
 
 ## Rodar localmente
 
-1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql` e `supabase/migrations/20261001142500_require_basic_client_address.sql` no SQL Editor. Se o projeto já aplicou as migrations anteriores, execute somente as que ainda não aplicou.
+1. Crie um projeto Supabase e execute, em ordem, os arquivos `supabase/migrations/20261001000000_smartlar.sql`, `supabase/migrations/20261001140000_smartlar_improvements.sql`, `supabase/migrations/20261001141500_remove_legacy_endereco.sql`, `supabase/migrations/20261001142000_soft_delete_client.sql`, `supabase/migrations/20261001142500_require_basic_client_address.sql` e `supabase/migrations/20261001143000_auth_and_store_profile.sql` no SQL Editor. Em um projeto existente, execute somente as que ainda não foram aplicadas.
 2. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com as credenciais públicas do projeto.
 3. Instale as dependências com `npm install`.
 4. Inicie com `npm run dev`. Para validar a build de produção, execute `npm run build`.
@@ -25,6 +25,10 @@ A migration inicial cria e relaciona as tabelas, valida as transições de statu
 - A tela **Pedidos** serve para criar orçamentos; **Gestão de pedidos** concentra filtros, detalhes e avanço de status. A data e o técnico são obrigatórios ao agendar.
 - Produtos são excluídos do catálogo por desativação (`ativo = false`), preservando itens e preços dos pedidos históricos.
 - Clientes também são excluídos por desativação (`ativo = false`), preservando os pedidos existentes. Clientes excluídos podem ser consultados e restaurados na tela de clientes.
+- O painel exige login por e-mail e senha via Supabase Auth. Crie o usuário do Rafael em **Authentication → Users → Add user** antes de aplicar a migration que restringe o banco e desative novos cadastros em **Authentication → Settings**. Não há cadastro público no app.
+- O menu do perfil permite sair e abrir as configurações da loja. O nome, telefone e endereço ficam em `configuracao_loja`; a troca do e-mail de login usa confirmação do Supabase Auth.
+- A migration de autenticação remove o acesso `anon` às tabelas operacionais. Para os workflows n8n continuarem consultando o REST do Supabase, configure uma credencial HTTP segura no n8n com a chave `service_role` do projeto (somente no n8n, nunca no frontend); atualize `apikey` e `Authorization: Bearer` dos nós de consulta. Revise também os workflows já configurados na instância.
+- Depois de aplicar a migration, entre no painel com o e-mail e a senha da conta criada no Supabase.
 
 ## n8n
 
@@ -35,17 +39,17 @@ Os arquivos importáveis estão em `n8n/workflows/`.
 1. Importe `notificar-novo-orcamento.json` no n8n.
 2. Copie a URL de produção do nó Webhook.
 3. No Supabase, crie um Database Webhook para `public.pedidos`, evento `INSERT`, apontando para essa URL e usando `POST`.
-4. Nos nós HTTP Request, substitua os marcadores `SEU-PROJETO`, `SUA-CHAVE-ANON` e `SEU-ID-WEBHOOK-SITE`. Para provar o recebimento, crie um endpoint gratuito em webhook.site e use a URL atribuída.
+4. Nos nós HTTP Request, substitua `SEU-PROJETO`, `SUA-CHAVE-SERVICE-ROLE` e `SEU-ID-WEBHOOK-SITE`. Configure a chave de serviço somente nos cabeçalhos `apikey` e `Authorization: Bearer` do n8n; não a grave no repositório nem no frontend.
 5. Ative o workflow. Crie um orçamento pelo app e confirme no webhook.site os campos do pedido, nome do cliente, valor e data.
 
 ### Instalações do dia seguinte
 
 1. Importe `alertar-instalacoes-amanha.json`.
-2. Substitua os mesmos marcadores de projeto/chave/destino.
+2. Substitua os mesmos marcadores de projeto/chave/destino. Se o workflow já estiver configurado na sua instância, atualize a consulta para usar a chave de serviço e selecionar rua, número, complemento e bairro do cliente.
 3. O cron está configurado para as 08:00 (`America/Sao_Paulo`). O workflow consulta o endpoint REST do Supabase e envia um resumo se houver instalações no dia seguinte; sem instalações, não envia uma mensagem vazia.
 4. Ative o workflow. Para testar sem esperar o cron, use **Execute workflow** e confira o histórico de execução.
 
-Em ambos os workflows, configure o destino externo antes de ativar e considere associar um Error Workflow no n8n para notificar falhas de execução. Não use a chave `service_role` no frontend. Para este teste, as políticas RLS são abertas para `anon` e `authenticated`, identificadas como demonstração; substitua por políticas com autenticação antes de qualquer uso com dados reais.
+Em ambos os workflows, configure o destino externo antes de ativar e considere associar um Error Workflow no n8n para notificar falhas de execução. Nunca use a chave `service_role` no frontend. A última migration restringe o banco a sessões autenticadas; a chave de serviço só deve ficar guardada como credencial privada no n8n.
 
 ## Próximos passos para a entrega do teste
 
