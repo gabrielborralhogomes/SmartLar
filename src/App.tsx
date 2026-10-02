@@ -120,9 +120,25 @@ function ClientAddressFields({ prefix = "" }: { prefix?: string }) {
 
 function asErrorMessage(error: unknown) {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
-    return error.message;
+    const message = error.message;
+    if (message.includes("Um técnico selecionado já tem uma instalação nesse horário")) {
+      return "Esse horário não está disponível para um dos técnicos escolhidos. Selecione outro horário ou técnico.";
+    }
+    if (message.includes("não atende a todas as categorias")) {
+      return "A equipe selecionada não atende a todas as categorias dos produtos.";
+    }
+    if (message.includes("conhecimentos técnicos da equipe não atendem")) {
+      return "Escolha técnicos com os conhecimentos necessários para instalar os produtos.";
+    }
+    if (message.includes("data de instalação deve ser futura")) {
+      return "Escolha uma data e horário futuros para a instalação.";
+    }
+    if (message.includes("duração deve ficar entre")) {
+      return "A duração precisa estar entre 15 e 480 minutos.";
+    }
   }
-  return "Ocorreu um erro inesperado. Tente novamente.";
+  console.error("A ação não foi concluída:", error);
+  return "Não foi possível concluir esta ação. Confira os dados e tente novamente.";
 }
 
 function StatusBadge({ status }: { status: PedidoStatus }) {
@@ -261,15 +277,8 @@ function App() {
         <div className="setup-card">
           <div className="brand-mark">S</div>
           <p className="eyebrow">SMARTLAR · GESTÃO</p>
-          <h1>Conecte seu projeto Supabase</h1>
-          <p>Configure as variáveis de ambiente para carregar os dados reais do sistema.</p>
-          <ol>
-            <li>Copie <code>.env.example</code> para <code>.env.local</code>.</li>
-            <li>Preencha a URL do projeto e a chave pública (anon) do Supabase.</li>
-            <li>Execute a migration <code>supabase/migrations/20261001000000_smartlar.sql</code>.</li>
-            <li>Reinicie o servidor de desenvolvimento.</li>
-          </ol>
-          <div className="setup-note">Nunca coloque a chave <code>service_role</code> no frontend.</div>
+          <h1>Sistema temporariamente indisponível</h1>
+          <p>Não foi possível carregar o sistema. Tente novamente mais tarde ou fale com o responsável.</p>
         </div>
       </main>
     );
@@ -333,7 +342,7 @@ function App() {
         <div className="page-content">
           {errorMessage && <div className="notice notice-error" role="alert"><strong>Não foi possível concluir.</strong> {errorMessage}<button onClick={() => setErrorMessage("")} aria-label="Fechar aviso">×</button></div>}
           {successMessage && <div className="notice notice-success" role="status">{successMessage}<button onClick={() => setSuccessMessage("")} aria-label="Fechar aviso">×</button></div>}
-          {loading ? <div className="loading-state"><span className="spinner" />Carregando informações do Supabase...</div> : (
+          {loading ? <div className="loading-state"><span className="spinner" />Carregando informações...</div> : (
             <>
               {page === "dashboard" && <Dashboard pedidos={pedidos} ownerName={profile?.nome || "Rafael"} onNavigate={setPage} />}
               {page === "clientes" && <ClientsPage clientes={clientes} pedidos={pedidos} onSave={(values) => runAction(async () => {
@@ -353,7 +362,7 @@ function App() {
                 const { error } = await db.from("produtos").update({ ativo }).eq("id", id);
                 if (error) throw error;
               }, ativo ? "Produto reativado." : "Produto excluído do catálogo; o histórico foi preservado.")} />}
-              {page === "tecnicos" && <TechniciansPage tecnicos={tecnicos} busy={busy}
+              {page === "tecnicos" && <TechniciansPage tecnicos={tecnicos} categorias={[...new Set(produtos.map((product) => product.categoria))].sort((a, b) => a.localeCompare(b, "pt-BR"))} busy={busy}
                 onSave={(values) => runAction(async () => {
                   const { error } = await db.from("tecnicos").insert(values);
                   if (error) throw error;
@@ -461,7 +470,7 @@ function LoginPage({ db, initialError, onClearError }: { db: NonNullable<typeof 
         <Field label="Senha"><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></Field>
       </div>
       <button className="button button-primary auth-submit" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</button>
-      <div className="setup-note">A conta inicial deve ser criada pelo administrador em Authentication → Users no Supabase.</div>
+      <div className="setup-note">Precisa de acesso? Peça ao responsável pelo sistema para criar sua conta.</div>
     </form>
   </main>;
 }
@@ -701,8 +710,9 @@ function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { pro
   </>;
 }
 
-function TechniciansPage({ tecnicos, busy, onSave, onActiveChange }: {
+function TechniciansPage({ tecnicos, categorias, busy, onSave, onActiveChange }: {
   tecnicos: Tecnico[];
+  categorias: string[];
   busy: boolean;
   onSave: (values: Omit<Tecnico, "id" | "ativo">) => Promise<ActionResult<void>>;
   onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>>;
@@ -716,17 +726,19 @@ function TechniciansPage({ tecnicos, busy, onSave, onActiveChange }: {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const skills = form.getAll("habilidades_instalacao").map(String);
-    if (!skills.length) {
-      setFormError("Selecione pelo menos uma especialidade.");
+    const categories = form.getAll("categorias_atendimento").map(String);
+    if (!categories.length) {
+      setFormError("Selecione pelo menos uma categoria atendida.");
       return;
     }
     setFormError("");
+    const skills = form.getAll("habilidades_instalacao").map(String);
     const result = await onSave({
       nome: String(form.get("nome")).trim(),
       telefone: String(form.get("telefone")).trim(),
       habilidades_instalacao: skills,
-      especialidade: skills.map((skill) => installationSkills[skill]).join(" e "),
+      categorias_atendimento: categories,
+      especialidade: [...categories, ...skills.map((skill) => installationSkills[skill])].join(" · "),
     });
     if (!result.ok) return;
     formElement.reset();
@@ -736,11 +748,12 @@ function TechniciansPage({ tecnicos, busy, onSave, onActiveChange }: {
   return <>
     <PageHeading eyebrow="EQUIPE" title="Técnicos" description="Cadastre técnicos e gerencie quem pode receber novas instalações." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo técnico</button>} />
     {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}>
-      <div className="panel-heading"><div><h2>Cadastrar técnico</h2><p>Informe contato e especialidades de instalação.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
+      <div className="panel-heading"><div><h2>Cadastrar técnico</h2><p>Informe contato, categorias atendidas e conhecimentos técnicos.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
       <div className="form-grid">
         <Field label="Nome"><input name="nome" required /></Field>
         <Field label="Telefone"><input name="telefone" type="tel" required /></Field>
-        <fieldset className="skill-field"><legend>Especialidades</legend>{Object.entries(installationSkills).map(([skill, label]) => <label key={skill}><input type="checkbox" name="habilidades_instalacao" value={skill} />{label}</label>)}</fieldset>
+        <fieldset className="skill-field"><legend>Categorias atendidas</legend>{categorias.length ? categorias.map((category) => <label key={category}><input type="checkbox" name="categorias_atendimento" value={category} />{category}</label>) : <span>Cadastre um produto para disponibilizar categorias.</span>}</fieldset>
+        <fieldset className="skill-field"><legend>Conhecimentos técnicos adicionais</legend>{Object.entries(installationSkills).map(([skill, label]) => <label key={skill}><input type="checkbox" name="habilidades_instalacao" value={skill} />{label}</label>)}</fieldset>
       </div>
       {formError && <div className="notice notice-error" role="alert">{formError}</div>}
       <div className="form-actions"><button className="button button-primary" disabled={busy}>Salvar técnico</button></div>
@@ -749,7 +762,7 @@ function TechniciansPage({ tecnicos, busy, onSave, onActiveChange }: {
       <div className="list-toolbar"><div><h2>{showInactive ? "Todos os técnicos" : "Técnicos ativos"} <span className="count-pill">{visibleTechnicians.length}</span></h2><p>Técnicos desativados não podem receber novas instalações; o histórico permanece disponível.</p></div><button className="button button-secondary" onClick={() => setShowInactive(!showInactive)}>{showInactive ? "Ver ativos" : "Ver também desativados"}</button></div>
       <div className="technician-list">{visibleTechnicians.map((technician) => <article className="technician-row" key={technician.id}>
         <div className="tech-avatar">{technician.nome.slice(0, 1)}</div>
-        <div className="technician-info"><strong>{technician.nome}</strong><span>{technician.telefone}</span><small>{technician.especialidade}</small></div>
+        <div className="technician-info"><strong>{technician.nome}</strong><span>{technician.telefone}</span><small>{technician.categorias_atendimento?.join(" · ") || technician.especialidade}</small></div>
         <span className={`technician-state ${technician.ativo ? "active" : ""}`}>{technician.ativo ? "Ativo" : "Desativado"}</span>
         <button className={`button button-small ${technician.ativo ? "button-danger-ghost" : "button-secondary"}`} disabled={busy} onClick={() => {
           if (technician.ativo && !window.confirm(`Desativar ${technician.nome}? Os pedidos históricos serão preservados.`)) return;
@@ -874,14 +887,15 @@ function OrderManagementPage({ pedidos, clientes, tecnicos, busy, onNavigate, on
         <Field label="Instalação até"><input type="date" value={installationBefore} onChange={(event) => setInstallationBefore(event.target.value)} /></Field>
       </div>
       <div className="table-wrap"><table className="orders-table"><thead><tr><th>PEDIDO</th><th>CLIENTE</th><th>CRIADO EM</th><th>INSTALAÇÃO</th><th>VALOR</th><th>STATUS</th><th /></tr></thead><tbody>
-        {filtered.map((order) => <FragmentOrder key={order.id} order={order} expanded={expanded === order.id} onToggle={() => setExpanded(expanded === order.id ? null : order.id)} tecnicos={tecnicos} schedule={schedule[order.id] ?? { tecnicoIds: suggestedTechnicianIds(order, tecnicos), data: toLocalDateTimeInput(order.data_instalacao), duracaoMinutos: order.duracao_instalacao_minutos ?? 60 }} onScheduleChange={(value) => setSchedule((current) => ({ ...current, [order.id]: value }))} busy={busy} onPaymentChange={onPaymentChange} onStatusChange={onStatusChange} />)}
+        {filtered.map((order) => <FragmentOrder key={order.id} order={order} pedidos={pedidos} expanded={expanded === order.id} onToggle={() => setExpanded(expanded === order.id ? null : order.id)} tecnicos={tecnicos} schedule={schedule[order.id] ?? { tecnicoIds: suggestedTechnicianIds(order, tecnicos), data: toLocalDateTimeInput(order.data_instalacao), duracaoMinutos: order.duracao_instalacao_minutos ?? 60 }} onScheduleChange={(value) => setSchedule((current) => ({ ...current, [order.id]: value }))} busy={busy} onPaymentChange={onPaymentChange} onStatusChange={onStatusChange} />)}
       </tbody></table>{filtered.length === 0 && <EmptyState title="Nenhum pedido neste filtro" text="Ajuste os filtros para ver pedidos." />}</div>
     </section>
   </>;
 }
 
-function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onScheduleChange, busy, onPaymentChange, onStatusChange }: {
+function FragmentOrder({ order, pedidos, expanded, onToggle, tecnicos, schedule, onScheduleChange, busy, onPaymentChange, onStatusChange }: {
   order: PedidoDetalhado; expanded: boolean; onToggle: () => void; tecnicos: Tecnico[]; schedule: ScheduleDraft;
+  pedidos: PedidoDetalhado[];
   onScheduleChange: (schedule: ScheduleDraft) => void; busy: boolean;
   onPaymentChange: (pedido: PedidoDetalhado, formaPagamento: string) => Promise<ActionResult<void>>;
   onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus, schedule?: ScheduleDraft) => Promise<ActionResult<void>>;
@@ -892,9 +906,21 @@ function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onSchedu
   const canCancel = order.status === "orcamento" || order.status === "aprovado";
   const scheduleDate = schedule.data ? saoPauloDateTimeToDate(schedule.data) : null;
   const validFutureSchedule = scheduleDate !== null && Number.isFinite(scheduleDate.getTime()) && scheduleDate.getTime() > Date.now();
+  const scheduledEnd = scheduleDate ? new Date(scheduleDate.getTime() + schedule.duracaoMinutos * 60_000) : null;
+  const hasScheduleConflict = Boolean(scheduleDate && scheduledEnd && pedidos.some((appointment) => {
+    if (appointment.id === order.id || !["agendado", "em_andamento"].includes(appointment.status) || !appointment.data_instalacao) return false;
+    const appointmentStart = new Date(appointment.data_instalacao);
+    const appointmentEnd = new Date(appointmentStart.getTime() + (appointment.duracao_instalacao_minutos ?? 60) * 60_000);
+    return schedule.tecnicoIds.some((id) => appointment.tecnico_ids.includes(id))
+      && scheduleDate < appointmentEnd
+      && appointmentStart < scheduledEnd;
+  }));
   const skills = requiredSkills(order);
   const coveredSkills = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.habilidades_instalacao ?? []));
   const teamCoversSkills = skills.every((skill) => coveredSkills.has(skill));
+  const categories = [...new Set(order.itens.map((item) => item.produto?.categoria).filter((category): category is string => Boolean(category)))];
+  const coveredCategories = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.categorias_atendimento ?? []));
+  const teamCoversCategories = categories.every((category) => coveredCategories.has(category));
   const assignedNames = order.tecnicos?.map((technician) => technician.nome).join(" + ");
   const availableTechnicians = tecnicos.filter((technician) => technician.ativo
     && !schedule.tecnicoIds.includes(technician.id)
@@ -913,8 +939,8 @@ function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onSchedu
         const technician = tecnicos.find((item) => item.id === technicianId);
         if (!technician) return null;
         return <span className="technician-tag" key={technician.id}>{technician.nome}<button type="button" aria-label={`Remover ${technician.nome}`} onClick={() => onScheduleChange({ ...schedule, tecnicoIds: schedule.tecnicoIds.filter((id) => id !== technician.id) })}>×</button></span>;
-      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder={schedule.tecnicoIds.length >= 2 ? "Máximo de dois técnicos" : "Digite para buscar técnico..."} value={technicianSearch} disabled={schedule.tecnicoIds.length >= 2} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && schedule.tecnicoIds.length < 2 && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{technician.especialidade}</small></button>) : <span>Nenhum técnico correspondente</span>}</div>}</div><small className="technician-picker-hint">Selecione até dois técnicos ativos.</small></div><p className="skill-hint">Especialidades exigidas: {skills.map((skill) => installationSkills[skill] ?? skill).join(" + ") || "não configuradas"}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{!teamCoversSkills && <p className="skill-hint skill-error">A equipe selecionada não cobre todas as especialidades exigidas.</p>}</>}
-      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversSkills || !validFutureSchedule || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
+      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder={schedule.tecnicoIds.length >= 2 ? "Máximo de dois técnicos" : "Digite para buscar técnico..."} value={technicianSearch} disabled={schedule.tecnicoIds.length >= 2} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && schedule.tecnicoIds.length < 2 && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{technician.categorias_atendimento?.join(" · ") || technician.especialidade}</small></button>) : <span>Nenhum técnico correspondente</span>}</div>}</div><small className="technician-picker-hint">Selecione até dois técnicos ativos.</small></div><p className="skill-hint">Categorias exigidas: {categories.join(" + ") || "não configuradas"}</p>{skills.length > 0 && <p className="skill-hint">Conhecimentos técnicos: {skills.map((skill) => installationSkills[skill] ?? skill).join(" + ")}</p>}<div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{(!teamCoversCategories || !teamCoversSkills) && <p className="skill-hint skill-error">A equipe selecionada não atende às categorias ou aos conhecimentos técnicos exigidos.</p>}{hasScheduleConflict && <p className="skill-hint skill-error">Um dos técnicos já tem uma instalação nesse horário.</p>}</>}
+      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversCategories || !teamCoversSkills || !validFutureSchedule || hasScheduleConflict || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
     </div></div></td></tr>}
   </>;
 }

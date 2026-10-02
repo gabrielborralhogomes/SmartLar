@@ -38,6 +38,7 @@ export type Tecnico = {
   telefone: string;
   especialidade: string;
   habilidades_instalacao: string[];
+  categorias_atendimento: string[];
   ativo: boolean;
 };
 
