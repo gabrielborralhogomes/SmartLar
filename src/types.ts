@@ -39,6 +39,7 @@ export type Tecnico = {
   especialidade: string;
   habilidades_instalacao: string[];
   categorias_atendimento: string[];
+  produto_ids: string[];
   ativo: boolean;
 };
 

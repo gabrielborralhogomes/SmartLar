@@ -13,6 +13,7 @@ const orderDraftStorageKey = "smartlar-order-draft";
 const clientFormDraftKey = "smartlar-client-form-draft";
 const productFormDraftKey = "smartlar-product-form-draft";
 const technicianFormDraftKey = "smartlar-technician-form-draft";
+const technicianDraftTargetKey = "smartlar-technician-form-target";
 type FormDraftValues = Record<string, string[]>;
 const emptyOrderDraft = (): OrderDraft => ({
   clienteId: "",
@@ -23,6 +24,10 @@ const emptyOrderDraft = (): OrderDraft => ({
 
 function hasFormDraft(key: string) {
   return localStorage.getItem(key) !== null;
+}
+
+function getTechnicianFormDraftKey(technicianId: string | null) {
+  return `${technicianFormDraftKey}:${technicianId ?? "new"}`;
 }
 
 function saveFormDraft(key: string, form: HTMLFormElement) {
@@ -89,22 +94,21 @@ function loadOrderDraft(): OrderDraft {
   }
 }
 
-const installationSkills: Record<string, string> = {
-  camera_sensor: "Câmeras e sensores",
-  fechadura_iluminacao: "Fechaduras e iluminação",
-};
-
-function requiredSkills(order: PedidoDetalhado) {
-  return [...new Set(order.itens.flatMap((item) => item.produto?.habilidades_instalacao ?? []))];
-}
-
 function suggestedTechnicianIds(order: PedidoDetalhado, technicians: Tecnico[]) {
-  return requiredSkills(order).flatMap((skill) => {
-    const assigned = order.tecnico_ids?.find((id) => technicians.some((technician) => technician.id === id && technician.ativo && technician.habilidades_instalacao?.includes(skill)));
-    const capable = technicians.find((technician) => technician.ativo && technician.habilidades_instalacao?.includes(skill));
-    const id = assigned ?? capable?.id;
-    return id ? [id] : [];
-  }).filter((id, index, ids) => ids.indexOf(id) === index);
+  const productIds = [...new Set(order.itens.map((item) => item.produto_id))];
+  const eligibleTechnicians = technicians.filter((technician) => technician.ativo
+    && technician.produto_ids?.some((id) => productIds.includes(id)));
+  const selected = (order.tecnico_ids ?? []).filter((id) => eligibleTechnicians.some((technician) => technician.id === id)).slice(0, 2);
+  while (selected.length < 2) {
+    const covered = new Set(selected.flatMap((id) => technicians.find((technician) => technician.id === id)?.produto_ids ?? []));
+    const next = eligibleTechnicians
+      .filter((technician) => !selected.includes(technician.id))
+      .map((technician) => ({ technician, coverage: technician.produto_ids.filter((id) => productIds.includes(id) && !covered.has(id)).length }))
+      .sort((a, b) => b.coverage - a.coverage)[0];
+    if (!next || next.coverage === 0) break;
+    selected.push(next.technician.id);
+  }
+  return selected;
 }
 
 const saoPauloDate = (date: Date) => {
@@ -205,11 +209,8 @@ function asErrorMessage(error: unknown) {
     if (message.includes("Um técnico selecionado já tem uma instalação nesse horário")) {
       return "Esse horário não está disponível para um dos técnicos escolhidos. Selecione outro horário ou técnico.";
     }
-    if (message.includes("não atende a todas as categorias")) {
-      return "A equipe selecionada não atende a todas as categorias dos produtos.";
-    }
-    if (message.includes("conhecimentos técnicos da equipe não atendem")) {
-      return "Escolha técnicos com os conhecimentos necessários para instalar os produtos.";
+    if (message.includes("não sabe instalar todos os produtos")) {
+      return "A equipe selecionada não cobre todos os produtos deste pedido.";
     }
     if (message.includes("data de instalação deve ser futura")) {
       return "Escolha uma data e horário futuros para a instalação.";
@@ -279,16 +280,17 @@ function App() {
     if (!db || !session) return;
     if (!loadedOnce.current) setLoading(true);
     setErrorMessage("");
-    const [clientsResult, techniciansResult, productsResult, ordersResult, itemsResult, orderTechniciansResult, profileResult] = await Promise.all([
+    const [clientsResult, techniciansResult, productsResult, ordersResult, itemsResult, orderTechniciansResult, technicianProductsResult, profileResult] = await Promise.all([
       db.from("clientes").select("*").order("nome"),
       db.from("tecnicos").select("*").order("nome"),
       db.from("produtos").select("*").order("categoria").order("nome"),
       db.from("pedidos").select("*").order("created_at", { ascending: false }),
       db.from("itens_pedido").select("*"),
       db.from("pedido_tecnicos").select("pedido_id, tecnico_id"),
+      db.from("tecnico_produtos").select("tecnico_id, produto_id"),
       db.from("configuracao_loja").select("*").eq("id", 1).single(),
     ]);
-    const firstError = clientsResult.error ?? techniciansResult.error ?? productsResult.error ?? ordersResult.error ?? itemsResult.error ?? orderTechniciansResult.error ?? profileResult.error;
+    const firstError = clientsResult.error ?? techniciansResult.error ?? productsResult.error ?? ordersResult.error ?? itemsResult.error ?? orderTechniciansResult.error ?? technicianProductsResult.error ?? profileResult.error;
     if (firstError) {
       setErrorMessage(`Não foi possível carregar os dados: ${firstError.message}`);
       loadedOnce.current = true;
@@ -297,7 +299,14 @@ function App() {
     }
 
     const clients = (clientsResult.data ?? []) as Cliente[];
-    const technicians = (techniciansResult.data ?? []) as Tecnico[];
+    const technicianProductIds = new Map<string, string[]>();
+    for (const assignment of technicianProductsResult.data ?? []) {
+      technicianProductIds.set(assignment.tecnico_id, [...(technicianProductIds.get(assignment.tecnico_id) ?? []), assignment.produto_id]);
+    }
+    const technicians = ((techniciansResult.data ?? []) as Omit<Tecnico, "produto_ids">[]).map((technician) => ({
+      ...technician,
+      produto_ids: technicianProductIds.get(technician.id) ?? [],
+    }));
     const products = (productsResult.data ?? []) as Produto[];
     const itemRows = (itemsResult.data ?? []) as ItemPedido[];
     const clientById = new Map(clients.map((client) => [client.id, client]));
@@ -443,11 +452,16 @@ function App() {
                 const { error } = await db.from("produtos").update({ ativo }).eq("id", id);
                 if (error) throw error;
               }, ativo ? "Produto reativado." : "Produto excluído do catálogo; o histórico foi preservado.")} />}
-              {page === "tecnicos" && <TechniciansPage tecnicos={tecnicos} categorias={[...new Set(produtos.map((product) => product.categoria))].sort((a, b) => a.localeCompare(b, "pt-BR"))} busy={busy}
-                onSave={(values) => runAction(async () => {
-                  const { error } = await db.from("tecnicos").insert(values);
+              {page === "tecnicos" && <TechniciansPage tecnicos={tecnicos} produtos={produtos} busy={busy}
+                onSave={(technicianId, values) => runAction(async () => {
+                  const { error } = await db.rpc("salvar_tecnico_com_produtos", {
+                    p_tecnico_id: technicianId,
+                    p_nome: values.nome,
+                    p_telefone: values.telefone,
+                    p_produto_ids: values.produto_ids,
+                  });
                   if (error) throw error;
-                }, "Técnico cadastrado.")}
+                }, technicianId ? "Dados do técnico atualizados." : "Técnico cadastrado.")}
                 onActiveChange={(id, ativo) => runAction(async () => {
                   const { error } = await db.from("tecnicos").update({ ativo }).eq("id", id);
                   if (error) throw error;
@@ -486,7 +500,7 @@ function App() {
                     if (error) throw error;
                   }
                 }, `Pedido atualizado para "${statusLabel[status]}".`)} />}
-              {page === "agenda" && <SchedulePage pedidos={pedidos} tecnicos={tecnicos} busy={busy}
+              {page === "agenda" && <SchedulePage pedidos={pedidos} tecnicos={tecnicos} produtos={produtos} busy={busy}
                 onStatusChange={(pedido, status) => runAction(async () => {
                   const { error } = await db.from("pedidos").update({ status }).eq("id", pedido.id);
                   if (error) throw error;
@@ -801,65 +815,79 @@ function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { pro
   </>;
 }
 
-function TechniciansPage({ tecnicos, categorias, busy, onSave, onActiveChange }: {
+function TechniciansPage({ tecnicos, produtos, busy, onSave, onActiveChange }: {
   tecnicos: Tecnico[];
-  categorias: string[];
+  produtos: Produto[];
   busy: boolean;
-  onSave: (values: Omit<Tecnico, "id" | "ativo">) => Promise<ActionResult<void>>;
+  onSave: (technicianId: string | null, values: Pick<Tecnico, "nome" | "telefone" | "produto_ids">) => Promise<ActionResult<void>>;
   onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>>;
 }) {
-  const [formOpen, setFormOpen] = useState(() => hasFormDraft(technicianFormDraftKey));
+  const savedTarget = localStorage.getItem(technicianDraftTargetKey);
+  const [editingTechnicianId, setEditingTechnicianId] = useState<string | null>(() => savedTarget && savedTarget !== "new" ? savedTarget : null);
+  const [formOpen, setFormOpen] = useState(() => savedTarget !== null
+    && hasFormDraft(getTechnicianFormDraftKey(savedTarget === "new" ? null : savedTarget)));
   const formRef = useRef<HTMLFormElement>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [formError, setFormError] = useState("");
+  const draftKey = getTechnicianFormDraftKey(editingTechnicianId);
+  const editingTechnician = tecnicos.find((technician) => technician.id === editingTechnicianId);
+  const selectableProducts = produtos.filter((product) => product.ativo || editingTechnician?.produto_ids.includes(product.id));
   const visibleTechnicians = tecnicos.filter((technician) => showInactive || technician.ativo);
   useEffect(() => {
-    if (formOpen && formRef.current) restoreFormDraft(technicianFormDraftKey, formRef.current);
-  }, [formOpen]);
+    if (formOpen && formRef.current) restoreFormDraft(draftKey, formRef.current);
+  }, [draftKey, formOpen]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const categories = form.getAll("categorias_atendimento").map(String);
-    if (!categories.length) {
-      setFormError("Selecione pelo menos uma categoria atendida.");
+    const productIds = form.getAll("produto_ids").map(String);
+    if (!productIds.length) {
+      setFormError("Selecione pelo menos um produto que o técnico sabe instalar.");
       return;
     }
     setFormError("");
-    const skills = form.getAll("habilidades_instalacao").map(String);
-    const result = await onSave({
+    const result = await onSave(editingTechnicianId, {
       nome: String(form.get("nome")).trim(),
       telefone: String(form.get("telefone")).trim(),
-      habilidades_instalacao: skills,
-      categorias_atendimento: categories,
-      especialidade: [...categories, ...skills.map((skill) => installationSkills[skill])].join(" · "),
+      produto_ids: productIds,
     });
     if (!result.ok) return;
-    localStorage.removeItem(technicianFormDraftKey);
+    localStorage.removeItem(draftKey);
+    localStorage.removeItem(technicianDraftTargetKey);
     formElement.reset();
     setFormOpen(false);
+    setEditingTechnicianId(null);
   };
 
   return <>
-    <PageHeading eyebrow="EQUIPE" title="Técnicos" description="Cadastre técnicos e gerencie quem pode receber novas instalações." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo técnico</button>} />
-    {formOpen && <form ref={formRef} className="panel form-panel" onChange={(event) => saveFormDraft(technicianFormDraftKey, event.currentTarget)} onSubmit={(event) => void submit(event)}>
-      <div className="panel-heading"><div><h2>Cadastrar técnico</h2><p>Informe contato, categorias atendidas e conhecimentos técnicos.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
+    <PageHeading eyebrow="EQUIPE" title="Técnicos" description="Cadastre técnicos e gerencie quem pode receber novas instalações." action={<button className="button button-primary" onClick={() => {
+      setEditingTechnicianId(null);
+      localStorage.setItem(technicianDraftTargetKey, "new");
+      setFormOpen(true);
+    }}>＋ Novo técnico</button>} />
+    {formOpen && <form key={editingTechnicianId ?? "new"} ref={formRef} className="panel form-panel" onChange={(event) => saveFormDraft(draftKey, event.currentTarget)} onSubmit={(event) => void submit(event)}>
+      <div className="panel-heading"><div><h2>{editingTechnician ? "Editar técnico" : "Cadastrar técnico"}</h2><p>Informe contato e os produtos que sabe instalar.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
       <div className="form-grid">
-        <Field label="Nome"><input name="nome" required /></Field>
-        <Field label="Telefone"><input name="telefone" type="tel" required /></Field>
-        <fieldset className="skill-field"><legend>Categorias atendidas</legend>{categorias.length ? categorias.map((category) => <label key={category}><input type="checkbox" name="categorias_atendimento" value={category} />{category}</label>) : <span>Cadastre um produto para disponibilizar categorias.</span>}</fieldset>
-        <fieldset className="skill-field"><legend>Conhecimentos técnicos adicionais</legend>{Object.entries(installationSkills).map(([skill, label]) => <label key={skill}><input type="checkbox" name="habilidades_instalacao" value={skill} />{label}</label>)}</fieldset>
+        <Field label="Nome"><input name="nome" defaultValue={editingTechnician?.nome ?? ""} required /></Field>
+        <Field label="Telefone"><input name="telefone" type="tel" defaultValue={editingTechnician?.telefone ?? ""} required /></Field>
+        <fieldset className="skill-field"><legend>Produtos que sabe instalar</legend>{selectableProducts.length ? selectableProducts.map((product) => <label key={product.id}><input type="checkbox" name="produto_ids" value={product.id} defaultChecked={editingTechnician?.produto_ids.includes(product.id)} />{product.nome}{!product.ativo && " (desativado)"}</label>) : <span>Cadastre um produto antes de adicionar um técnico.</span>}</fieldset>
       </div>
       {formError && <div className="notice notice-error" role="alert">{formError}</div>}
-      <div className="form-actions"><button className="button button-primary" disabled={busy}>Salvar técnico</button></div>
+      <div className="form-actions"><button className="button button-primary" disabled={busy}>{editingTechnician ? "Atualizar técnico" : "Salvar técnico"}</button></div>
     </form>}
     <section className="panel">
       <div className="list-toolbar"><div><h2>{showInactive ? "Todos os técnicos" : "Técnicos ativos"} <span className="count-pill">{visibleTechnicians.length}</span></h2><p>Técnicos desativados não podem receber novas instalações; o histórico permanece disponível.</p></div><button className="button button-secondary" onClick={() => setShowInactive(!showInactive)}>{showInactive ? "Ver ativos" : "Ver também desativados"}</button></div>
       <div className="technician-list">{visibleTechnicians.map((technician) => <article className="technician-row" key={technician.id}>
         <div className="tech-avatar">{technician.nome.slice(0, 1)}</div>
-        <div className="technician-info"><strong>{technician.nome}</strong><span>{technician.telefone}</span><small>{technician.categorias_atendimento?.join(" · ") || technician.especialidade}</small></div>
+        <div className="technician-info"><strong>{technician.nome}</strong><span>{technician.telefone}</span><small>{technician.produto_ids.map((id) => produtos.find((product) => product.id === id)?.nome).filter((name): name is string => Boolean(name)).join(" · ") || "Nenhum produto associado"}</small></div>
         <span className={`technician-state ${technician.ativo ? "active" : ""}`}>{technician.ativo ? "Ativo" : "Desativado"}</span>
+        <button className="button button-secondary button-small" onClick={() => {
+          setFormError("");
+          setEditingTechnicianId(technician.id);
+          localStorage.setItem(technicianDraftTargetKey, technician.id);
+          setFormOpen(true);
+        }}>Editar produtos</button>
         <button className={`button button-small ${technician.ativo ? "button-danger-ghost" : "button-secondary"}`} disabled={busy} onClick={() => {
           if (technician.ativo && !window.confirm(`Desativar ${technician.nome}? Os pedidos históricos serão preservados.`)) return;
           void onActiveChange(technician.id, !technician.ativo);
@@ -1036,17 +1064,15 @@ function FragmentOrder({ order, pedidos, expanded, onToggle, tecnicos, schedule,
       && scheduleDate < appointmentEnd
       && appointmentStart < scheduledEnd;
   }));
-  const skills = requiredSkills(order);
-  const coveredSkills = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.habilidades_instalacao ?? []));
-  const teamCoversSkills = skills.every((skill) => coveredSkills.has(skill));
-  const categories = [...new Set(order.itens.map((item) => item.produto?.categoria).filter((category): category is string => Boolean(category)))];
-  const coveredCategories = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.categorias_atendimento ?? []));
-  const teamCoversCategories = categories.every((category) => coveredCategories.has(category));
-  const missingCategories = categories.filter((category) => !coveredCategories.has(category));
-  const missingSkills = skills.filter((skill) => !coveredSkills.has(skill));
+  const requiredProductIds = [...new Set(order.itens.map((item) => item.produto_id))];
+  const coveredProductIds = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.produto_ids ?? []));
+  const missingProductIds = requiredProductIds.filter((id) => !coveredProductIds.has(id));
+  const missingProductNames = missingProductIds.map((id) => order.itens.find((item) => item.produto_id === id)?.produto?.nome ?? "Produto");
+  const teamCoversProducts = missingProductIds.length === 0;
   const assignedNames = order.tecnicos?.map((technician) => technician.nome).join(" + ");
   const availableTechnicians = tecnicos.filter((technician) => technician.ativo
     && !schedule.tecnicoIds.includes(technician.id)
+    && technician.produto_ids?.some((id) => requiredProductIds.includes(id))
     && technician.nome.toLocaleLowerCase("pt-BR").includes(technicianSearch.trim().toLocaleLowerCase("pt-BR")));
   const addTechnician = (technician: Tecnico) => {
     if (schedule.tecnicoIds.length >= 2) return;
@@ -1062,15 +1088,16 @@ function FragmentOrder({ order, pedidos, expanded, onToggle, tecnicos, schedule,
         const technician = tecnicos.find((item) => item.id === technicianId);
         if (!technician) return null;
         return <span className="technician-tag" key={technician.id}>{technician.nome}<button type="button" aria-label={`Remover ${technician.nome}`} onClick={() => onScheduleChange({ ...schedule, tecnicoIds: schedule.tecnicoIds.filter((id) => id !== technician.id) })}>×</button></span>;
-      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder={schedule.tecnicoIds.length >= 2 ? "Máximo de dois técnicos" : "Digite para buscar técnico..."} value={technicianSearch} disabled={schedule.tecnicoIds.length >= 2} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && schedule.tecnicoIds.length < 2 && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{technician.categorias_atendimento?.join(" · ") || technician.especialidade}</small></button>) : <span>Nenhum técnico correspondente</span>}</div>}</div><small className="technician-picker-hint">Selecione até dois técnicos ativos.</small></div><p className="skill-hint">Categorias exigidas: {categories.join(" + ") || "não configuradas"}</p>{skills.length > 0 && <p className="skill-hint">Conhecimentos técnicos: {skills.map((skill) => installationSkills[skill] ?? skill).join(" + ")}</p>}<div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{missingCategories.length > 0 && <p className="skill-hint schedule-validation-error">A equipe selecionada não atende às categorias: {missingCategories.join(", ")}.</p>}{missingSkills.length > 0 && <p className="skill-hint schedule-validation-error">Faltam estes conhecimentos técnicos: {missingSkills.map((skill) => installationSkills[skill] ?? skill).join(", ")}.</p>}{hasScheduleConflict && <p className="skill-hint schedule-validation-error">Um dos técnicos já tem uma instalação nesse horário.</p>}</>}
-      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversCategories || !teamCoversSkills || !validFutureSchedule || hasScheduleConflict || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
+      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder={schedule.tecnicoIds.length >= 2 ? "Máximo de dois técnicos" : "Digite para buscar técnico..."} value={technicianSearch} disabled={schedule.tecnicoIds.length >= 2} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && schedule.tecnicoIds.length < 2 && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{Array.from(new Set(order.itens.filter((item) => technician.produto_ids?.includes(item.produto_id)).map((item) => item.produto?.nome ?? "Produto"))).join(" · ")}</small></button>) : <span>Nenhum técnico habilitado para os produtos deste pedido</span>}</div>}</div><small className="technician-picker-hint">Mostrando técnicos habilitados para estes produtos; selecione até dois.</small></div><p className="skill-hint">Produtos exigidos: {requiredProductIds.map((id) => order.itens.find((item) => item.produto_id === id)?.produto?.nome ?? "Produto").join(" + ")}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{missingProductIds.length > 0 && <p className="skill-hint schedule-validation-error">A equipe selecionada não cobre estes produtos: {missingProductNames.join(", ")}.</p>}{hasScheduleConflict && <p className="skill-hint schedule-validation-error">Um dos técnicos já tem uma instalação nesse horário.</p>}</>}
+      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversProducts || !validFutureSchedule || hasScheduleConflict || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
     </div></div></td></tr>}
   </>;
 }
 
-function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: {
+function SchedulePage({ pedidos, tecnicos, produtos, busy, onStatusChange }: {
   pedidos: PedidoDetalhado[];
   tecnicos: Tecnico[];
+  produtos: Produto[];
   busy: boolean;
   onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus) => Promise<ActionResult<void>>;
 }) {
@@ -1090,8 +1117,8 @@ function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: {
 
   return <>
     <PageHeading eyebrow="OPERAÇÃO" title="Agenda técnica" description="Acompanhe as instalações por técnico e atualize o andamento do serviço." action={<button className="button button-secondary" onClick={() => setShowFullCalendar(!showFullCalendar)}>{showFullCalendar ? "Ver agenda de hoje" : "Ver calendário completo"}</button>} />
-    <div className="tech-tabs">{tecnicos.map((technician) => <button className={`tech-tab ${selectedTech === technician.id ? "active" : ""}`} key={technician.id} onClick={() => setSelectedTech(technician.id)}><span className="tech-avatar">{technician.nome.slice(0, 1)}</span><span><strong>{technician.nome}</strong><small>{technician.especialidade}</small></span></button>)}</div>
-    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"} · {showFullCalendar ? "Calendário completo" : "Hoje"}</h2><p>{installations.length} instalação(ões){showFullCalendar ? " em todas as datas" : ` · ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" }).format(new Date(`${today}T12:00:00-03:00`))}`}</p></div><span className="tech-specialty">{selectedTechnician?.especialidade}</span></div>
+    <div className="tech-tabs">{tecnicos.map((technician) => <button className={`tech-tab ${selectedTech === technician.id ? "active" : ""}`} key={technician.id} onClick={() => setSelectedTech(technician.id)}><span className="tech-avatar">{technician.nome.slice(0, 1)}</span><span><strong>{technician.nome}</strong><small>{technician.produto_ids.map((id) => produtos.find((product) => product.id === id)?.nome).filter((name): name is string => Boolean(name)).join(" · ") || "Sem produtos associados"}</small></span></button>)}</div>
+    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"} · {showFullCalendar ? "Calendário completo" : "Hoje"}</h2><p>{installations.length} instalação(ões){showFullCalendar ? " em todas as datas" : ` · ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" }).format(new Date(`${today}T12:00:00-03:00`))}`}</p></div><span className="tech-specialty">{selectedTechnician?.produto_ids.map((id) => produtos.find((product) => product.id === id)?.nome).filter((name): name is string => Boolean(name)).join(" · ")}</span></div>
       {installations.length === 0 ? <EmptyState title={showFullCalendar ? "Nenhuma instalação na agenda" : "Nenhuma instalação hoje"} text={showFullCalendar ? "As instalações agendadas para este técnico aparecerão aqui." : "As instalações agendadas para hoje aparecerão aqui em ordem de horário."} /> : <div className="schedule-list">
         {installations.map((order) => <article className="schedule-card" key={order.id}>
           <div className="schedule-card-date"><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { weekday: "short", timeZone: "America/Sao_Paulo" }).replace(".", "") : ""}</span><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}</strong><small>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : ""}</small></div>
