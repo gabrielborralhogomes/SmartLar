@@ -848,7 +848,16 @@ function OrderManagementPage({ pedidos, clientes, tecnicos, busy, onNavigate, on
   return <>
     <PageHeading eyebrow="OPERAÇÃO" title="Gestão de pedidos" description="Consulte detalhes, aplique filtros e avance cada pedido pelo fluxo de atendimento." action={<button className="button button-primary" onClick={onNavigate}>＋ Novo orçamento</button>} />
     <section className="panel">
-      <div className="list-toolbar"><div><h2>Pedidos <span className="count-pill">{filtered.length} / {pedidos.length}</span></h2><p>O agendamento exige técnico e data futura.</p></div></div>
+      <div className="list-toolbar"><div><h2>Pedidos <span className="count-pill">{filtered.length} / {pedidos.length}</span></h2><p>O agendamento exige técnico e data futura.</p></div><button className="button button-secondary" onClick={() => {
+        setStatusFilter("todos");
+        setClientFilter("");
+        setMinimum("");
+        setMaximum("");
+        setCreatedAfter("");
+        setCreatedBefore("");
+        setInstallationAfter("");
+        setInstallationBefore("");
+      }}>Limpar filtros</button></div>
       <div className="order-filters">
         <Field label="Status"><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="todos">Todos</option>{Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
         <Field label="Cliente"><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="">Todos</option>{clientes.map((client) => <option key={client.id} value={client.id}>{client.nome}</option>)}</select></Field>
