@@ -442,10 +442,17 @@ function App() {
                 const { error } = await db.from("clientes").update({ ativo }).eq("id", id);
                 if (error) throw error;
               }, ativo ? "Cliente reativado." : "Cliente excluído; o histórico de pedidos foi preservado.")} />}
-              {page === "produtos" && <ProductsPage produtos={produtos} onSave={(values) => runAction(async () => {
-                const { error } = await db.from("produtos").insert(values);
-                if (error) throw error;
-              }, "Produto cadastrado com sucesso.")} onPriceChange={(id, price) => runAction(async () => {
+              {page === "produtos" && <ProductsPage produtos={produtos} onSave={(values) => {
+                const existingProduct = produtos.find((product) => product.nome.trim().toLocaleLowerCase("pt-BR") === values.nome.trim().toLocaleLowerCase("pt-BR"));
+                return runAction(async () => {
+                  const result = existingProduct
+                    ? await db.from("produtos").update({ ...values, ativo: true }).eq("id", existingProduct.id)
+                    : await db.from("produtos").insert(values);
+                  if (result.error) throw result.error;
+                }, existingProduct
+                  ? existingProduct.ativo ? "Produto atualizado." : "Produto reativado com sucesso."
+                  : "Produto cadastrado com sucesso.");
+              }} onPriceChange={(id, price) => runAction(async () => {
                 const { error } = await db.from("produtos").update({ preco_unitario: price }).eq("id", id);
                 if (error) throw error;
               }, "Preço atualizado.")} onActiveChange={(id, ativo) => runAction(async () => {
