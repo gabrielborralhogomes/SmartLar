@@ -721,7 +721,7 @@ function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { pro
       categoria: String(form.get("categoria")).trim(),
       preco_unitario: Number(form.get("preco")),
       descricao: String(form.get("descricao")).trim(),
-      habilidades_instalacao: form.getAll("habilidades_instalacao").map(String),
+      habilidades_instalacao: [],
     });
     if (!result.ok) return;
     formElement.reset();
@@ -730,9 +730,8 @@ function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { pro
 
   return <>
     <PageHeading eyebrow="CATÁLOGO" title="Produtos" description="Organize os equipamentos e mantenha os preços atualizados." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo produto</button>} />
-    {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Cadastrar produto</h2><p>Defina nome, categoria, preço e especialidades necessárias para instalar.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div><div className="form-grid">
+    {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Cadastrar produto</h2><p>Defina nome, categoria, preço e descrição.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div><div className="form-grid">
       <Field label="Nome do produto"><input name="nome" required /></Field><Field label="Categoria"><input name="categoria" placeholder="Ex.: Segurança" required /></Field><Field label="Preço unitário (R$)"><input name="preco" type="number" step="0.01" min="0" required /></Field><Field label="Descrição"><input name="descricao" /></Field>
-      <fieldset className="skill-field"><legend>Especialidades necessárias</legend>{Object.entries(installationSkills).map(([skill, label]) => <label key={skill}><input type="checkbox" name="habilidades_instalacao" value={skill} />{label}</label>)}</fieldset>
     </div><div className="form-actions"><button className="button button-primary">Salvar produto</button></div></form>}
     <div className="catalog-filters"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto..." /></label><Field label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="todas">Todas as categorias</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field></div>
     <div className="catalog-summary"><strong>{filteredProducts.length}</strong> produtos ativos <span>·</span> {Object.keys(groups).length} categorias</div>
