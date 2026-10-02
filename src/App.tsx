@@ -866,6 +866,17 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
       {lines.map((line, index) => { const product = produtos.find((item) => item.id === line.produto_id); return <div className="order-line" key={index}><select aria-label={`Produto ${index + 1}`} required={index < lines.length - 1 || Boolean(line.produto_id)} value={line.produto_id} onChange={(event) => {
         const selectedProduct = event.target.value;
         setDraft((current) => {
+          const duplicateIndex = current.lines.findIndex((item, itemIndex) => itemIndex !== index && item.produto_id === selectedProduct);
+          if (duplicateIndex !== -1) {
+            const selectedLine = current.lines[index];
+            const updated = current.lines.map((item, itemIndex) => itemIndex === duplicateIndex
+              ? { ...item, quantidade: item.quantidade + (selectedLine.produto_id ? selectedLine.quantidade : 1) }
+              : item);
+            if (!selectedLine.produto_id) return { ...current, lines: updated };
+            const withoutSelectedLine = updated.filter((_, itemIndex) => itemIndex !== index);
+            if (withoutSelectedLine.at(-1)?.produto_id) withoutSelectedLine.push({ produto_id: "", quantidade: 1 });
+            return { ...current, lines: withoutSelectedLine };
+          }
           const updated = current.lines.map((item, itemIndex) => itemIndex === index ? { ...item, produto_id: selectedProduct } : item);
           return { ...current, lines: index === current.lines.length - 1 && selectedProduct ? [...updated, { produto_id: "", quantidade: 1 }] : updated };
         });
