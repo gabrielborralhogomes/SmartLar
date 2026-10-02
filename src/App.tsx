@@ -10,6 +10,10 @@ type OrderDraft = { clienteId: string; observacoes: string; novoCliente: NewClie
 type ActionResult<T> = { ok: true; value: T } | { ok: false };
 type ScheduleDraft = { tecnicoIds: string[]; data: string; duracaoMinutos: number };
 const orderDraftStorageKey = "smartlar-order-draft";
+const clientFormDraftKey = "smartlar-client-form-draft";
+const productFormDraftKey = "smartlar-product-form-draft";
+const technicianFormDraftKey = "smartlar-technician-form-draft";
+type FormDraftValues = Record<string, string[]>;
 const emptyOrderDraft = (): OrderDraft => ({
   clienteId: "",
   observacoes: "",
@@ -17,8 +21,52 @@ const emptyOrderDraft = (): OrderDraft => ({
   lines: [{ produto_id: "", quantidade: 1 }],
 });
 
+function hasFormDraft(key: string) {
+  return localStorage.getItem(key) !== null;
+}
+
+function saveFormDraft(key: string, form: HTMLFormElement) {
+  const values: FormDraftValues = {};
+  for (const control of Array.from(form.elements)) {
+    if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) || !control.name) continue;
+    if (control instanceof HTMLInputElement && control.type === "checkbox") {
+      values[control.name] ??= [];
+      if (control.checked) values[control.name].push(control.value);
+    } else if (control instanceof HTMLInputElement && control.type === "radio") {
+      if (control.checked) values[control.name] = [control.value];
+    } else if (control instanceof HTMLSelectElement && control.multiple) {
+      values[control.name] = Array.from(control.selectedOptions, (option) => option.value);
+    } else {
+      values[control.name] = [control.value];
+    }
+  }
+  localStorage.setItem(key, JSON.stringify(values));
+}
+
+function restoreFormDraft(key: string, form: HTMLFormElement) {
+  const saved = localStorage.getItem(key);
+  if (!saved) return;
+  try {
+    const values = JSON.parse(saved) as FormDraftValues;
+    for (const control of Array.from(form.elements)) {
+      if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement) || !control.name) continue;
+      if (control instanceof HTMLInputElement && control.type === "checkbox") {
+        control.checked = values[control.name]?.includes(control.value) ?? false;
+      } else if (control instanceof HTMLInputElement && control.type === "radio") {
+        control.checked = values[control.name]?.includes(control.value) ?? false;
+      } else if (control instanceof HTMLSelectElement && control.multiple) {
+        for (const option of Array.from(control.options)) option.selected = values[control.name]?.includes(option.value) ?? false;
+      } else {
+        control.value = values[control.name]?.[0] ?? "";
+      }
+    }
+  } catch (error) {
+    console.error("Não foi possível restaurar o rascunho do formulário:", error);
+  }
+}
+
 function loadOrderDraft(): OrderDraft {
-  const saved = sessionStorage.getItem(orderDraftStorageKey);
+  const saved = localStorage.getItem(orderDraftStorageKey) ?? sessionStorage.getItem(orderDraftStorageKey);
   if (!saved) return emptyOrderDraft();
   try {
     const draft = JSON.parse(saved) as Partial<OrderDraft>;
@@ -651,8 +699,12 @@ function Dashboard({ pedidos, ownerName, onNavigate }: { pedidos: PedidoDetalhad
 function ClientsPage({ clientes, pedidos, onSave, onActiveChange }: { clientes: Cliente[]; pedidos: PedidoDetalhado[]; onSave: (values: ClienteInput) => Promise<ActionResult<void>>; onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>> }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(() => hasFormDraft(clientFormDraftKey));
+  const formRef = useRef<HTMLFormElement>(null);
   const [showInactive, setShowInactive] = useState(false);
+  useEffect(() => {
+    if (formOpen && formRef.current) restoreFormDraft(clientFormDraftKey, formRef.current);
+  }, [formOpen]);
   const isClientActive = (client: Cliente) => client.ativo !== false;
   const activeClients = clientes.filter(isClientActive);
   const visible = clientes.filter((client) => isClientActive(client) !== showInactive && `${client.nome} ${client.telefone} ${client.email ?? ""} ${getClientAddress(client)}`.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")));
@@ -663,13 +715,14 @@ function ClientsPage({ clientes, pedidos, onSave, onActiveChange }: { clientes: 
     const form = new FormData(formElement);
     const result = await onSave(clientValuesFromForm(form));
     if (!result.ok) return;
+    localStorage.removeItem(clientFormDraftKey);
     formElement.reset();
     setFormOpen(false);
   };
 
   return <>
     <PageHeading eyebrow="RELACIONAMENTO" title="Clientes" description="Cadastre e acompanhe as informações de quem confia na SmartLar." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo cliente</button>} />
-    {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Novo cliente</h2><p>Telefone e endereço são obrigatórios.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
+    {formOpen && <form ref={formRef} className="panel form-panel" onChange={(event) => saveFormDraft(clientFormDraftKey, event.currentTarget)} onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Novo cliente</h2><p>Telefone e endereço são obrigatórios.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
       <div className="form-grid"><Field label="Nome completo"><input name="nome" required /></Field><Field label="WhatsApp / telefone"><input name="telefone" type="tel" required /></Field><Field label="E-mail (opcional)"><input name="email" type="email" /></Field><ClientAddressFields /></div><div className="form-actions"><button className="button button-primary">Salvar cliente</button></div>
     </form>}
     <section className="panel">
@@ -698,10 +751,14 @@ function ClientsPage({ clientes, pedidos, onSave, onActiveChange }: { clientes: 
 }
 
 function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { produtos: Produto[]; onSave: (values: Omit<Produto, "id" | "ativo">) => Promise<ActionResult<void>>; onPriceChange: (id: string, price: number) => Promise<ActionResult<void>>; onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>> }) {
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(() => hasFormDraft(productFormDraftKey));
+  const formRef = useRef<HTMLFormElement>(null);
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("todas");
+  useEffect(() => {
+    if (formOpen && formRef.current) restoreFormDraft(productFormDraftKey, formRef.current);
+  }, [formOpen]);
   const activeProducts = produtos.filter((product) => product.ativo);
   const categories = [...new Set(activeProducts.map((product) => product.categoria))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   const filteredProducts = activeProducts.filter((product) =>
@@ -724,13 +781,14 @@ function ProductsPage({ produtos, onSave, onPriceChange, onActiveChange }: { pro
       habilidades_instalacao: [],
     });
     if (!result.ok) return;
+    localStorage.removeItem(productFormDraftKey);
     formElement.reset();
     setFormOpen(false);
   };
 
   return <>
     <PageHeading eyebrow="CATÁLOGO" title="Produtos" description="Organize os equipamentos e mantenha os preços atualizados." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo produto</button>} />
-    {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Cadastrar produto</h2><p>Defina nome, categoria, preço e descrição.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div><div className="form-grid">
+    {formOpen && <form ref={formRef} className="panel form-panel" onChange={(event) => saveFormDraft(productFormDraftKey, event.currentTarget)} onSubmit={(event) => void submit(event)}><div className="panel-heading"><div><h2>Cadastrar produto</h2><p>Defina nome, categoria, preço e descrição.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div><div className="form-grid">
       <Field label="Nome do produto"><input name="nome" required /></Field><Field label="Categoria"><input name="categoria" placeholder="Ex.: Segurança" required /></Field><Field label="Preço unitário (R$)"><input name="preco" type="number" step="0.01" min="0" required /></Field><Field label="Descrição"><input name="descricao" /></Field>
     </div><div className="form-actions"><button className="button button-primary">Salvar produto</button></div></form>}
     <div className="catalog-filters"><label className="search-box"><span>⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto..." /></label><Field label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value)}><option value="todas">Todas as categorias</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></Field></div>
@@ -749,10 +807,14 @@ function TechniciansPage({ tecnicos, categorias, busy, onSave, onActiveChange }:
   onSave: (values: Omit<Tecnico, "id" | "ativo">) => Promise<ActionResult<void>>;
   onActiveChange: (id: string, active: boolean) => Promise<ActionResult<void>>;
 }) {
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(() => hasFormDraft(technicianFormDraftKey));
+  const formRef = useRef<HTMLFormElement>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [formError, setFormError] = useState("");
   const visibleTechnicians = tecnicos.filter((technician) => showInactive || technician.ativo);
+  useEffect(() => {
+    if (formOpen && formRef.current) restoreFormDraft(technicianFormDraftKey, formRef.current);
+  }, [formOpen]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -773,13 +835,14 @@ function TechniciansPage({ tecnicos, categorias, busy, onSave, onActiveChange }:
       especialidade: [...categories, ...skills.map((skill) => installationSkills[skill])].join(" · "),
     });
     if (!result.ok) return;
+    localStorage.removeItem(technicianFormDraftKey);
     formElement.reset();
     setFormOpen(false);
   };
 
   return <>
     <PageHeading eyebrow="EQUIPE" title="Técnicos" description="Cadastre técnicos e gerencie quem pode receber novas instalações." action={<button className="button button-primary" onClick={() => setFormOpen(!formOpen)}>＋ Novo técnico</button>} />
-    {formOpen && <form className="panel form-panel" onSubmit={(event) => void submit(event)}>
+    {formOpen && <form ref={formRef} className="panel form-panel" onChange={(event) => saveFormDraft(technicianFormDraftKey, event.currentTarget)} onSubmit={(event) => void submit(event)}>
       <div className="panel-heading"><div><h2>Cadastrar técnico</h2><p>Informe contato, categorias atendidas e conhecimentos técnicos.</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)}>×</button></div>
       <div className="form-grid">
         <Field label="Nome"><input name="nome" required /></Field>
@@ -816,7 +879,7 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
   const lines = draft.lines;
 
   useEffect(() => {
-    sessionStorage.setItem(orderDraftStorageKey, JSON.stringify(draft));
+    localStorage.setItem(orderDraftStorageKey, JSON.stringify(draft));
   }, [draft]);
 
   const resetForm = () => {
