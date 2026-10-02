@@ -5,8 +5,7 @@ Aplicação web para gerir clientes, catálogo de produtos, orçamentos, pedidos
 ## Tecnologias e estrutura
 
 - `src/`: aplicação web.
-- `supabase/migrations/`: alterações cumulativas do banco, para aplicar em ordem.
-- `supabase/demo/`: script opcional que substitui dados operacionais por cenários de demonstração.
+- `supabase/setup.sql`: script único para instalar o banco em um projeto Supabase novo.
 - `n8n/workflows/`: exemplos importáveis de automações opcionais.
 - `doc.docx`: documento-fonte do projeto; não é necessário para compilar o app.
 
@@ -26,7 +25,7 @@ Aplicação web para gerir clientes, catálogo de produtos, orçamentos, pedidos
    cd SmartLar
    ```
 
-2. Crie um projeto Supabase ou use um já existente. Em um projeto novo, aplique todas as migrations listadas na seção [Banco de dados](#banco-de-dados).
+2. Configure seu projeto Supabase. Para uma instalação nova, execute o script único descrito na seção [Banco de dados](#banco-de-dados).
 3. Copie `.env.example` para `.env.local` e preencha as duas variáveis com os dados públicos do projeto Supabase:
 
    ```dotenv
@@ -53,31 +52,15 @@ O app abre uma tela de configuração se as variáveis não estiverem definidas.
 
 ## Banco de dados
 
-### Aplicar migrations
+### Instalação
 
-Em um projeto novo, abra o **SQL Editor** do Supabase e execute estes arquivos, um de cada vez, na ordem:
+Em um projeto Supabase **novo**, crie primeiro o usuário administrador em **Authentication → Users**. Depois, abra o **SQL Editor**, cole e execute uma única vez `supabase/setup.sql`. O arquivo configura o banco completo e insere dados de demonstração.
 
-1. `supabase/migrations/20261001000000_smartlar.sql`
-2. `supabase/migrations/20261001140000_smartlar_improvements.sql`
-3. `supabase/migrations/20261001141500_remove_legacy_endereco.sql`
-4. `supabase/migrations/20261001142000_soft_delete_client.sql`
-5. `supabase/migrations/20261001142500_require_basic_client_address.sql`
-6. `supabase/migrations/20261001143000_auth_and_store_profile.sql`
-7. `supabase/migrations/20261001144500_route_optimization.sql`
-8. `supabase/migrations/20261001144600_technician_skills_and_fixed_routes.sql`
-9. `supabase/migrations/20261001144700_manage_technicians.sql`
-10. `supabase/migrations/20261001144800_remove_legacy_technician_column.sql`
-11. `supabase/migrations/20261002100000_prevent_schedule_conflicts_and_add_technician_categories.sql`
-12. `supabase/migrations/20261002110000_technician_product_expertise.sql`
-13. `supabase/migrations/20261002120000_remove_technician_assignment_limit.sql`
-
-Se o projeto já tem tabelas ou dados, **não reaplique todas as migrations**: identifique quais já foram aplicadas e execute apenas as pendentes, em ordem, com backup recente. Não remova nem renomeie migrations já aplicadas. Em banco existente, atualize o workflow n8n de instalações para remover a relação legada `pedidos_tecnico_id_fkey` antes de aplicar `20261001144800_remove_legacy_technician_column.sql`.
-
-A migration inicial cria dados de demonstração (clientes, técnicos, produtos e pedidos). Confira e substitua esses registros antes de operar com dados reais. O script `supabase/demo/reset_route_demo.sql` é opcional e destrutivo: apaga clientes, pedidos, itens, vínculos de técnicos e histórico para recriar cenários de teste. **Não o execute em um banco com dados que deseja preservar.**
+**Não execute `setup.sql` sobre um banco existente ou com dados que deseja preservar.** Ele não é uma atualização incremental. A instalação consolidada substitui os scripts SQL anteriores; se seu projeto já está conectado ao SmartLar, ele continua funcionando e não precisa executar nada. Para bancos existentes fora desse estado, não apague nem recrie tabelas: faça backup e consulte o histórico SQL do projeto antes de qualquer alteração.
 
 ### Primeiro acesso e autenticação
 
-1. Em **Authentication → Users**, crie o usuário que terá acesso ao painel. Crie-o antes da migration `20261001143000_auth_and_store_profile.sql`, que restringe o acesso às tabelas operacionais a sessões autenticadas.
+1. Crie em **Authentication → Users** o usuário que terá acesso ao painel antes de executar `supabase/setup.sql`; o banco será configurado para aceitar sessões autenticadas.
 2. Em **Authentication → Settings**, desative novos cadastros públicos.
 3. Acesse o app com o e-mail e a senha criados no Supabase. O app não possui fluxo de cadastro público.
 4. Depois de publicar, configure o endereço do site e os URLs de redirecionamento conforme a seção [Publicar na Vercel](#publicar-na-vercel).
@@ -90,7 +73,7 @@ O repositório já contém `vercel.json` para declarar o build do Vite e encamin
 
 ### Configuração inicial
 
-1. Confirme que as migrations estão aplicadas no projeto Supabase de produção e que o usuário de acesso foi criado.
+1. Confirme que o banco foi instalado no projeto Supabase de produção e que o usuário de acesso foi criado.
 2. Entre na Vercel e escolha **Add New → Project**.
 3. Importe `gabrielborralhogomes/SmartLar` do GitHub. Use a branch `main` para produção. A configuração versionada usa:
    - Build command: `npm run build`
@@ -140,7 +123,7 @@ Os workflows importáveis estão em `n8n/workflows/`. Eles não são necessário
 
 1. Importe `n8n/workflows/alertar-instalacoes-amanha.json`.
 2. Configure URL do projeto, credenciais privadas e destino de notificação na instância n8n.
-3. A consulta deve selecionar a relação `pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))` e `duracao_instalacao_minutos` para resumir a equipe e a duração. Não selecione `pedidos.tecnico_id`: a migration `20261001144800_remove_legacy_technician_column.sql` remove essa coluna legada.
+3. A consulta deve selecionar a relação `pedido_tecnicos(tecnico:tecnicos!pedido_tecnicos_tecnico_id_fkey(nome))` e `duracao_instalacao_minutos` para resumir a equipe e a duração. Não selecione `pedidos.tecnico_id`: essa coluna legada não existe no esquema atual.
 4. O cron executa às 08:00 em `America/Sao_Paulo`. Execute manualmente o workflow para testar sem esperar o horário agendado.
 5. Ative o workflow e acompanhe as execuções no histórico do n8n. Considere configurar um Error Workflow para alertar falhas.
 
@@ -158,7 +141,7 @@ Os workflows importáveis estão em `n8n/workflows/`. Eles não são necessário
 
 - **Tela de configuração do Supabase:** verifique os nomes exatos das variáveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`, os valores e se um novo deploy foi feito após alterá-las.
 - **Login falha ou retorna a URL errada:** confira usuário/senha e os campos **Site URL**/**Redirect URLs** em **Authentication → URL Configuration**.
-- **Erro de permissão ao carregar dados:** confirme que o usuário está autenticado e que todas as migrations necessárias foram aplicadas ao projeto correspondente.
+- **Erro de permissão ao carregar dados:** confirme que o usuário está autenticado e que o banco foi instalado no projeto correspondente.
 - **Rota da aplicação retorna 404 ao atualizar:** confirme que o deploy está usando o `vercel.json` do repositório e que o output é `dist`.
 - **Notificação n8n não chega:** confira se o workflow está ativo, se o Database Webhook aponta para a URL de produção, se a credencial REST do n8n está válida e se o histórico de execução mostra erro.
 
@@ -167,5 +150,4 @@ Os workflows importáveis estão em `n8n/workflows/`. Eles não são necessário
 - `.env.example` contém somente nomes e exemplos fictícios das variáveis.
 - `.env.local`, credenciais n8n, tokens, chaves privadas e backups não devem ser enviados ao Git.
 - `doc.docx` é mantido como documento-fonte, mas não participa da build.
-- `supabase/demo/reset_route_demo.sql` é apenas para demonstração e apaga dados operacionais; não é script de deploy.
 - O deploy e as contas externas (Supabase, GitHub, Vercel e n8n) precisam ser configurados nos respectivos serviços. Este repositório não contém credenciais nem publica o site por conta própria.
