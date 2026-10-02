@@ -1001,21 +1001,24 @@ function SchedulePage({ pedidos, tecnicos, busy, onStatusChange }: {
   onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus) => Promise<ActionResult<void>>;
 }) {
   const [selectedTech, setSelectedTech] = useState("");
+  const [showFullCalendar, setShowFullCalendar] = useState(false);
   const today = saoPauloDate(new Date());
   useEffect(() => { if (!selectedTech && tecnicos[0]) setSelectedTech(tecnicos[0].id); }, [selectedTech, tecnicos]);
   const selectedTechnician = tecnicos.find((tech) => tech.id === selectedTech);
   const installations = pedidos
     .filter((order) => order.tecnico_ids.includes(selectedTech)
-      && ["agendado", "em_andamento"].includes(order.status)
+      && (showFullCalendar
+        ? ["agendado", "em_andamento", "concluido"].includes(order.status)
+        : ["agendado", "em_andamento"].includes(order.status))
       && order.data_instalacao
-      && saoPauloDate(new Date(order.data_instalacao)) === today)
+      && (showFullCalendar || saoPauloDate(new Date(order.data_instalacao)) === today))
     .sort((a, b) => (a.data_instalacao ?? "").localeCompare(b.data_instalacao ?? ""));
 
   return <>
-    <PageHeading eyebrow="OPERAÇÃO" title="Agenda técnica" description="Veja as instalações de hoje em ordem de horário e atualize o andamento do serviço." />
+    <PageHeading eyebrow="OPERAÇÃO" title="Agenda técnica" description="Acompanhe as instalações por técnico e atualize o andamento do serviço." action={<button className="button button-secondary" onClick={() => setShowFullCalendar(!showFullCalendar)}>{showFullCalendar ? "Ver agenda de hoje" : "Ver calendário completo"}</button>} />
     <div className="tech-tabs">{tecnicos.map((technician) => <button className={`tech-tab ${selectedTech === technician.id ? "active" : ""}`} key={technician.id} onClick={() => setSelectedTech(technician.id)}><span className="tech-avatar">{technician.nome.slice(0, 1)}</span><span><strong>{technician.nome}</strong><small>{technician.especialidade}</small></span></button>)}</div>
-    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"} · Hoje</h2><p>{installations.length} instalação(ões) · {new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" }).format(new Date(`${today}T12:00:00-03:00`))}</p></div><span className="tech-specialty">{selectedTechnician?.especialidade}</span></div>
-      {installations.length === 0 ? <EmptyState title="Nenhuma instalação hoje" text="As instalações agendadas para hoje aparecerão aqui em ordem de horário." /> : <div className="schedule-list">
+    <section className="panel schedule-panel"><div className="panel-heading"><div><h2>Instalações de {selectedTechnician?.nome ?? "técnico"} · {showFullCalendar ? "Calendário completo" : "Hoje"}</h2><p>{installations.length} instalação(ões){showFullCalendar ? " em todas as datas" : ` · ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "full", timeZone: "America/Sao_Paulo" }).format(new Date(`${today}T12:00:00-03:00`))}`}</p></div><span className="tech-specialty">{selectedTechnician?.especialidade}</span></div>
+      {installations.length === 0 ? <EmptyState title={showFullCalendar ? "Nenhuma instalação na agenda" : "Nenhuma instalação hoje"} text={showFullCalendar ? "As instalações agendadas para este técnico aparecerão aqui." : "As instalações agendadas para hoje aparecerão aqui em ordem de horário."} /> : <div className="schedule-list">
         {installations.map((order) => <article className="schedule-card" key={order.id}>
           <div className="schedule-card-date"><span>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { weekday: "short", timeZone: "America/Sao_Paulo" }).replace(".", "") : ""}</span><strong>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleDateString("pt-BR", { day: "2-digit", timeZone: "America/Sao_Paulo" }) : "—"}</strong><small>{order.data_instalacao ? new Date(order.data_instalacao).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : ""}</small></div>
           <div className="schedule-card-main"><div className="schedule-card-heading"><strong>{order.cliente?.nome}</strong><StatusBadge status={order.status} /></div><span>⌖ {order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</span><span>☎ {order.cliente?.telefone}</span><span>Técnicos: {order.tecnicos?.map((technician) => technician.nome).join(" + ") || "Não atribuído"} · {order.duracao_instalacao_minutos ?? 60} min</span><div className="schedule-products">{order.itens.map((item) => `${item.quantidade} × ${item.produto?.nome ?? "Produto"}`).join(" · ")}</div></div>
