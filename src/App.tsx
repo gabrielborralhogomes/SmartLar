@@ -5,8 +5,41 @@ import type { Cliente, ClienteInput, ItemPedido, Pedido, PedidoDetalhado, Pedido
 
 type Page = "dashboard" | "clientes" | "produtos" | "tecnicos" | "pedidos" | "gestao" | "agenda" | "configuracoes";
 type OrderLine = { produto_id: string; quantidade: number };
+type NewClientDraft = { nome: string; telefone: string; email: string; rua: string; numero: string; complemento: string; bairro: string };
+type OrderDraft = { clienteId: string; observacoes: string; novoCliente: NewClientDraft; lines: OrderLine[] };
 type ActionResult<T> = { ok: true; value: T } | { ok: false };
 type ScheduleDraft = { tecnicoIds: string[]; data: string; duracaoMinutos: number };
+const orderDraftStorageKey = "smartlar-order-draft";
+const emptyOrderDraft = (): OrderDraft => ({
+  clienteId: "",
+  observacoes: "",
+  novoCliente: { nome: "", telefone: "", email: "", rua: "", numero: "", complemento: "", bairro: "" },
+  lines: [{ produto_id: "", quantidade: 1 }],
+});
+
+function loadOrderDraft(): OrderDraft {
+  const saved = sessionStorage.getItem(orderDraftStorageKey);
+  if (!saved) return emptyOrderDraft();
+  try {
+    const draft = JSON.parse(saved) as Partial<OrderDraft>;
+    if (typeof draft.clienteId !== "string"
+      || typeof draft.observacoes !== "string"
+      || !draft.novoCliente
+      || !Array.isArray(draft.lines)) return emptyOrderDraft();
+    return {
+      ...emptyOrderDraft(),
+      ...draft,
+      novoCliente: { ...emptyOrderDraft().novoCliente, ...draft.novoCliente },
+      lines: draft.lines.filter((line): line is OrderLine => Boolean(line)
+        && typeof line.produto_id === "string"
+        && Number.isFinite(line.quantidade)
+        && line.quantidade >= 1),
+    };
+  } catch (error) {
+    console.error("Não foi possível restaurar o rascunho do orçamento:", error);
+    return emptyOrderDraft();
+  }
+}
 
 const installationSkills: Record<string, string> = {
   camera_sensor: "Câmeras e sensores",
@@ -779,14 +812,21 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
   onCreate: (clienteId: string, observacoes: string, itens: OrderLine[]) => Promise<ActionResult<void>>;
   onCreateClient: (values: ClienteInput) => Promise<ActionResult<string>>;
 }) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const [lines, setLines] = useState<OrderLine[]>([{ produto_id: "", quantidade: 1 }]);
-  const [newClientMode, setNewClientMode] = useState(false);
+  const [draft, setDraft] = useState<OrderDraft>(loadOrderDraft);
+  const newClientMode = draft.clienteId === "novo";
+  const lines = draft.lines;
+
+  useEffect(() => {
+    sessionStorage.setItem(orderDraftStorageKey, JSON.stringify(draft));
+  }, [draft]);
+
   const resetForm = () => {
-    formRef.current?.reset();
-    setLines([{ produto_id: "", quantidade: 1 }]);
-    setNewClientMode(false);
+    setDraft(emptyOrderDraft());
   };
+  const updateNewClient = (field: keyof NewClientDraft, value: string) => setDraft((current) => ({
+    ...current,
+    novoCliente: { ...current.novoCliente, [field]: value },
+  }));
   const currentTotal = lines.reduce((sum, line) => {
     const product = produtos.find((item) => item.id === line.produto_id);
     return sum + (product ? product.preco_unitario * line.quantidade : 0);
@@ -794,35 +834,42 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    let clienteId = String(form.get("cliente_id"));
-    const observacoes = String(form.get("observacoes")).trim();
+    let clienteId = draft.clienteId;
     if (clienteId === "novo") {
-      const result = await onCreateClient(clientValuesFromForm(form, "novo_"));
+      const result = await onCreateClient({
+        nome: draft.novoCliente.nome.trim(),
+        telefone: draft.novoCliente.telefone.trim(),
+        email: draft.novoCliente.email.trim() || null,
+        rua: draft.novoCliente.rua.trim(),
+        numero: draft.novoCliente.numero.trim(),
+        complemento: draft.novoCliente.complemento.trim(),
+        bairro: draft.novoCliente.bairro.trim(),
+      });
       if (!result.ok) return;
       clienteId = result.value;
+      setDraft((current) => ({ ...current, clienteId, novoCliente: emptyOrderDraft().novoCliente }));
     }
     const orderLines = lines.filter((line) => line.produto_id);
     if (!clienteId || orderLines.length === 0 || orderLines.some((line) => line.quantidade < 1)) return;
-    const result = await onCreate(clienteId, observacoes, orderLines);
+    const result = await onCreate(clienteId, draft.observacoes.trim(), orderLines);
     if (!result.ok) return;
     resetForm();
   };
 
   return <>
     <PageHeading eyebrow="VENDAS" title="Pedidos" description="Monte um orçamento para um cliente, com os equipamentos e quantidades necessários." action={<button className="button button-secondary" onClick={resetForm}>↺ Limpar campos</button>} />
-    <form ref={formRef} className="panel form-panel order-form" onSubmit={(event) => void submit(event)}>
+    <form className="panel form-panel order-form" onSubmit={(event) => void submit(event)}>
       <div className="panel-heading"><div><h2>Novo orçamento</h2><p>Adicione um cliente e um ou mais produtos.</p></div></div>
-      <div className="form-grid"><Field label="Cliente"><select name="cliente_id" required defaultValue="" onChange={(event) => setNewClientMode(event.target.value === "novo")}><option value="" disabled>Selecione um cliente</option>{clientes.filter((client) => client.ativo !== false).map((client) => <option key={client.id} value={client.id}>{client.nome} · {client.telefone}</option>)}<option value="novo">＋ Cadastrar cliente agora</option></select></Field><Field label="Observações"><input name="observacoes" placeholder="Detalhes importantes do serviço..." /></Field></div>
-      {newClientMode && <div className="inline-client-form"><strong>Novo cliente para este orçamento</strong><div className="form-grid"><Field label="Nome completo"><input name="novo_nome" required /></Field><Field label="WhatsApp / telefone"><input name="novo_telefone" type="tel" required /></Field><Field label="E-mail (opcional)"><input name="novo_email" type="email" /></Field><ClientAddressFields prefix="novo_" /></div></div>}
+      <div className="form-grid"><Field label="Cliente"><select name="cliente_id" required value={draft.clienteId} onChange={(event) => setDraft((current) => ({ ...current, clienteId: event.target.value }))}><option value="" disabled>Selecione um cliente</option>{clientes.filter((client) => client.ativo !== false).map((client) => <option key={client.id} value={client.id}>{client.nome} · {client.telefone}</option>)}<option value="novo">＋ Cadastrar cliente agora</option></select></Field><Field label="Observações"><input name="observacoes" placeholder="Detalhes importantes do serviço..." value={draft.observacoes} onChange={(event) => setDraft((current) => ({ ...current, observacoes: event.target.value }))} /></Field></div>
+      {newClientMode && <div className="inline-client-form"><strong>Novo cliente para este orçamento</strong><div className="form-grid"><Field label="Nome completo"><input name="novo_nome" required value={draft.novoCliente.nome} onChange={(event) => updateNewClient("nome", event.target.value)} /></Field><Field label="WhatsApp / telefone"><input name="novo_telefone" type="tel" required value={draft.novoCliente.telefone} onChange={(event) => updateNewClient("telefone", event.target.value)} /></Field><Field label="E-mail (opcional)"><input name="novo_email" type="email" value={draft.novoCliente.email} onChange={(event) => updateNewClient("email", event.target.value)} /></Field><Field label="Rua"><input name="novo_rua" required value={draft.novoCliente.rua} onChange={(event) => updateNewClient("rua", event.target.value)} /></Field><Field label="Número"><input name="novo_numero" placeholder="Nº ou S/N" required value={draft.novoCliente.numero} onChange={(event) => updateNewClient("numero", event.target.value)} /></Field><Field label="Complemento (opcional)"><input name="novo_complemento" value={draft.novoCliente.complemento} onChange={(event) => updateNewClient("complemento", event.target.value)} /></Field><Field label="Bairro"><input name="novo_bairro" required value={draft.novoCliente.bairro} onChange={(event) => updateNewClient("bairro", event.target.value)} /></Field></div></div>}
       <div className="order-lines-heading"><strong>Produtos do pedido</strong></div>
       {lines.map((line, index) => { const product = produtos.find((item) => item.id === line.produto_id); return <div className="order-line" key={index}><select aria-label={`Produto ${index + 1}`} required={index < lines.length - 1 || Boolean(line.produto_id)} value={line.produto_id} onChange={(event) => {
         const selectedProduct = event.target.value;
-        setLines((current) => {
-          const updated = current.map((item, itemIndex) => itemIndex === index ? { ...item, produto_id: selectedProduct } : item);
-          return index === current.length - 1 && selectedProduct ? [...updated, { produto_id: "", quantidade: 1 }] : updated;
+        setDraft((current) => {
+          const updated = current.lines.map((item, itemIndex) => itemIndex === index ? { ...item, produto_id: selectedProduct } : item);
+          return { ...current, lines: index === current.lines.length - 1 && selectedProduct ? [...updated, { produto_id: "", quantidade: 1 }] : updated };
         });
-      }}><option value="" disabled>Selecione um produto</option>{produtos.filter((item) => item.ativo).map((item) => <option key={item.id} value={item.id}>{item.nome} · {currency.format(Number(item.preco_unitario))}</option>)}</select><label className="quantity-input"><span>Qtd.</span><input type="number" min="1" step="1" required value={line.quantidade} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantidade: Math.max(1, Number(event.target.value) || 1) } : item))} /></label><strong className="line-subtotal">{currency.format(product ? product.preco_unitario * line.quantidade : 0)}</strong>{lines.length > 1 && <button type="button" className="icon-button remove-line" aria-label="Remover produto" onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>}</div>; })}
+      }}><option value="" disabled>Selecione um produto</option>{produtos.filter((item) => item.ativo).map((item) => <option key={item.id} value={item.id}>{item.nome} · {currency.format(Number(item.preco_unitario))}</option>)}</select><label className="quantity-input"><span>Qtd.</span><input type="number" min="1" step="1" required value={line.quantidade} onChange={(event) => setDraft((current) => ({ ...current, lines: current.lines.map((item, itemIndex) => itemIndex === index ? { ...item, quantidade: Math.max(1, Number(event.target.value) || 1) } : item) }))} /></label><strong className="line-subtotal">{currency.format(product ? product.preco_unitario * line.quantidade : 0)}</strong>{lines.length > 1 && <button type="button" className="icon-button remove-line" aria-label="Remover produto" onClick={() => setDraft((current) => ({ ...current, lines: current.lines.filter((_, itemIndex) => itemIndex !== index) }))}>×</button>}</div>; })}
       <div className="order-total"><span>Total do orçamento</span><strong>{currency.format(currentTotal)}</strong></div>
       <div className="form-actions"><button type="button" className="button button-secondary" onClick={resetForm}>Limpar campos</button><button className="button button-primary" disabled={busy || currentTotal <= 0}>Salvar como orçamento</button></div>
     </form>
