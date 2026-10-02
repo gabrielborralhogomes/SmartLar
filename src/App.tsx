@@ -371,7 +371,7 @@ function App() {
                   const { error } = await db.from("tecnicos").update({ ativo }).eq("id", id);
                   if (error) throw error;
                 }, ativo ? "Técnico reativado." : "Técnico desativado; os pedidos históricos foram preservados.")} />}
-              {page === "pedidos" && <OrdersPage clientes={clientes} produtos={produtos}
+              <div hidden={page !== "pedidos"}><OrdersPage clientes={clientes} produtos={produtos}
                 busy={busy}
                 onCreateClient={(values) => runAction(async () => {
                   const { data, error } = await db.from("clientes").insert(values).select("id").single();
@@ -385,7 +385,7 @@ function App() {
                   });
                   if (error) throw error;
                 }, "Orçamento criado.")}
-              />}
+              /></div>
               {page === "gestao" && <OrderManagementPage pedidos={pedidos} clientes={clientes} tecnicos={tecnicos} onNavigate={() => setPage("pedidos")}
                 busy={busy} onPaymentChange={(pedido, formaPagamento) => runAction(async () => {
                   const { error } = await db.from("pedidos").update({ forma_pagamento: formaPagamento }).eq("id", pedido.id);
