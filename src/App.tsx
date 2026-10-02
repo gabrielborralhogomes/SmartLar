@@ -7,7 +7,7 @@ type Page = "dashboard" | "clientes" | "produtos" | "tecnicos" | "pedidos" | "ge
 type OrderLine = { produto_id: string; quantidade: number };
 type NewClientDraft = { nome: string; telefone: string; email: string; rua: string; numero: string; complemento: string; bairro: string };
 type OrderDraft = { clienteId: string; observacoes: string; novoCliente: NewClientDraft; lines: OrderLine[] };
-type ActionResult<T> = { ok: true; value: T } | { ok: false };
+type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string; detail?: string };
 type ScheduleDraft = { tecnicoIds: string[]; data: string; duracaoMinutos: number };
 const orderDraftStorageKey = "smartlar-order-draft";
 const clientFormDraftKey = "smartlar-client-form-draft";
@@ -206,6 +206,18 @@ function ClientAddressFields({ prefix = "" }: { prefix?: string }) {
 function asErrorMessage(error: unknown) {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     const message = error.message;
+    if (message.includes("Could not find the function") && message.includes("agendar_pedido")) {
+      return "A função de agendamento do banco está desatualizada. Aplique a migration mais recente de agenda e tente novamente.";
+    }
+    if (message.includes("tecnico_produtos") && (message.includes("does not exist") || message.includes("schema cache"))) {
+      return "A configuração de produtos dos técnicos ainda não foi aplicada no banco. Execute as migrations de especialidade por produto e tente novamente.";
+    }
+    if (message.includes("Selecione um ou dois técnicos")) {
+      return "O banco ainda está com a regra antiga de quantidade de técnicos. Aplique a migration que remove esse limite.";
+    }
+    if (message.includes("A equipe selecionada não sabe instalar todos os produtos")) {
+      return "A equipe selecionada não cobre todos os produtos deste pedido. Confira os produtos associados a cada técnico.";
+    }
     if (message.includes("Um técnico selecionado já tem uma instalação nesse horário")) {
       return "Esse horário não está disponível para um dos técnicos escolhidos. Selecione outro horário ou técnico.";
     }
@@ -221,6 +233,12 @@ function asErrorMessage(error: unknown) {
   }
   console.error("A ação não foi concluída:", error);
   return "Não foi possível concluir esta ação. Confira os dados e tente novamente.";
+}
+
+function errorDetail(error: unknown) {
+  return error && typeof error === "object" && "message" in error && typeof error.message === "string"
+    ? error.message
+    : undefined;
 }
 
 function StatusBadge({ status }: { status: PedidoStatus }) {
@@ -354,8 +372,10 @@ function App() {
       await reload();
       return { ok: true, value };
     } catch (error) {
-      setErrorMessage(asErrorMessage(error));
-      return { ok: false };
+      const message = asErrorMessage(error);
+      setErrorMessage(message);
+      const detail = errorDetail(error);
+      return { ok: false, error: message, ...(detail && detail !== message ? { detail } : {}) };
     } finally {
       setBusy(false);
     }
@@ -1058,6 +1078,8 @@ function FragmentOrder({ order, pedidos, expanded, onToggle, tecnicos, schedule,
 }) {
   const [technicianSearch, setTechnicianSearch] = useState("");
   const [technicianOptionsOpen, setTechnicianOptionsOpen] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleErrorDetail, setScheduleErrorDetail] = useState<string | null>(null);
   const nextStatus: Partial<Record<PedidoStatus, PedidoStatus>> = { orcamento: "aprovado", aprovado: "agendado", agendado: "em_andamento", em_andamento: "concluido" };
   const canCancel = order.status === "orcamento" || order.status === "aprovado";
   const scheduleDate = schedule.data ? saoPauloDateTimeToDate(schedule.data) : null;
@@ -1094,8 +1116,18 @@ function FragmentOrder({ order, pedidos, expanded, onToggle, tecnicos, schedule,
         const technician = tecnicos.find((item) => item.id === technicianId);
         if (!technician) return null;
         return <span className="technician-tag" key={technician.id}>{technician.nome}<button type="button" aria-label={`Remover ${technician.nome}`} onClick={() => onScheduleChange({ ...schedule, tecnicoIds: schedule.tecnicoIds.filter((id) => id !== technician.id) })}>×</button></span>;
-      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder="Digite para buscar técnico..." value={technicianSearch} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{Array.from(new Set(order.itens.filter((item) => technician.produto_ids?.includes(item.produto_id)).map((item) => item.produto?.nome ?? "Produto"))).join(" · ")}</small></button>) : <span>Nenhum técnico habilitado para os produtos deste pedido</span>}</div>}</div><small className="technician-picker-hint">Mostrando técnicos habilitados para estes produtos; sem limite de equipe.</small></div><p className="skill-hint">Produtos exigidos: {requiredProductIds.map((id) => order.itens.find((item) => item.produto_id === id)?.produto?.nome ?? "Produto").join(" + ")}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{missingProductIds.length > 0 && <p className="skill-hint schedule-validation-error">A equipe selecionada não cobre estes produtos: {missingProductNames.join(", ")}.</p>}{hasScheduleConflict && <p className="skill-hint schedule-validation-error">Um dos técnicos já tem uma instalação nesse horário.</p>}</>}
-      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversProducts || !validFutureSchedule || hasScheduleConflict || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
+      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder="Digite para buscar técnico..." value={technicianSearch} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{Array.from(new Set(order.itens.filter((item) => technician.produto_ids?.includes(item.produto_id)).map((item) => item.produto?.nome ?? "Produto"))).join(" · ")}</small></button>) : <span>Nenhum técnico habilitado para os produtos deste pedido</span>}</div>}</div><small className="technician-picker-hint">Mostrando técnicos habilitados para estes produtos; sem limite de equipe.</small></div><p className="skill-hint">Produtos exigidos: {requiredProductIds.map((id) => order.itens.find((item) => item.produto_id === id)?.produto?.nome ?? "Produto").join(" + ")}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => { setScheduleError(null); onScheduleChange({ ...schedule, data: event.target.value }); }} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => { setScheduleError(null); onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) }); }} /></label></div>{!schedule.data && <p className="skill-hint schedule-validation-error">Informe a data e o horário da instalação.</p>}{schedule.data && !validFutureSchedule && <p className="skill-hint schedule-validation-error">Escolha uma data e um horário futuros.</p>}{(schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480) && <p className="skill-hint schedule-validation-error">A duração deve ficar entre 15 e 480 minutos.</p>}{missingProductIds.length > 0 && <p className="skill-hint schedule-validation-error">A equipe selecionada não cobre estes produtos: {missingProductNames.join(", ")}.</p>}{hasScheduleConflict && <p className="skill-hint schedule-validation-error">Um dos técnicos já tem uma instalação nesse horário.</p>}</>}
+      {scheduleError && <div className="notice notice-error schedule-action-error" role="alert"><span>{scheduleError}</span>{scheduleErrorDetail && <details><summary>Detalhes</summary><code>{scheduleErrorDetail}</code></details>}</div>}
+      <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversProducts || !validFutureSchedule || hasScheduleConflict || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => {
+        setScheduleError(null);
+        setScheduleErrorDetail(null);
+        void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined).then((result) => {
+          if (!result.ok) {
+            setScheduleError(result.error);
+            setScheduleErrorDetail(result.detail ?? null);
+          }
+        });
+      }}>{busy && order.status === "aprovado" ? "Agendando..." : order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
     </div></div></td></tr>}
   </>;
 }

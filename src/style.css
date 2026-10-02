@@ -111,6 +111,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .notice button { position: absolute; top: 5px; right: 10px; padding: 3px 6px; border: 0; color: inherit; background: transparent; font-size: 18px; }
 .notice-error { border: 1px solid #f1d4d2; color: #8e3833; background: #fff5f4; }
 .notice-success { border: 1px solid #cbe8db; color: #246b50; background: #f1faf5; }
+.schedule-action-error { margin: 8px 0 14px; padding-right: 14px; }
+.schedule-action-error details { margin-top: 6px; }
+.schedule-action-error code { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: 10px; }
 .loading-state { display: flex; align-items: center; justify-content: center; gap: 11px; min-height: 300px; color: #6e8188; font-size: 12px; }
 .spinner { width: 18px; height: 18px; border: 2px solid #d9e9e2; border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
