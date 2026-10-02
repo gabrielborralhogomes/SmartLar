@@ -199,6 +199,9 @@ td strong { color: #344a54; font-weight: 600; }
 .detail-item { display: flex; justify-content: space-between; gap: 15px; max-width: 370px; margin-top: 9px; color: #64777e; font-size: 10px; }
 .detail-notes { margin: 11px 0 0; color: #88969b; font-size: 9px; }
 .order-detail-grid p { margin: 9px 0 0; color: #60737b; font-size: 10px; }
+.payment-field { display: grid; gap: 5px; max-width: 220px; margin-top: 10px; color: #718189; font-size: 10px; }
+.payment-field select, .technician-picker input { width: 100%; height: 34px; padding: 0 10px; border: 1px solid #e1e8ea; border-radius: 6px; outline: none; color: #344a55; background: white; font-size: 11px; }
+.payment-field select:focus, .technician-picker input:focus { border-color: #77c5a8; box-shadow: 0 0 0 3px #25aa7c12; }
 .schedule-inline { display: flex; gap: 8px; margin-top: 12px; }
 .schedule-inline label { display: grid; flex: 1; gap: 5px; color: #718189; font-size: 9px; }
 .schedule-inline input, .schedule-inline select { height: 32px; }
@@ -382,10 +385,17 @@ td, .table-client strong, .selected-client-orders > strong, .mini-order, .produc
 .skill-field legend { padding: 0 5px; color: #71818a; font-size: 11px; }
 .skill-field label, .schedule-tech-option { display: flex; align-items: center; gap: 8px; color: #405761; font-size: 12px; }
 .skill-field input, .schedule-tech-option input { accent-color: var(--green); }
-.schedule-team { flex-wrap: wrap; align-items: center; }
-.schedule-tech-option { padding: 8px 10px; border: 1px solid #e6ecee; border-radius: 7px; }
-.schedule-tech-option span, .schedule-tech-option small { display: block; }
-.schedule-tech-option small { margin-top: 2px; color: #89979e; font-size: 10px; }
+.schedule-team { display: grid; gap: 7px; margin-top: 12px; }
+.technician-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.technician-tag { display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid #c9e5da; border-radius: 16px; color: #326b58; background: #f0f8f4; font-size: 11px; }
+.technician-tag button { padding: 0; border: 0; color: #568575; background: transparent; font-size: 16px; line-height: 1; cursor: pointer; }
+.technician-picker { position: relative; max-width: 320px; }
+.technician-picker-hint { color: #89979e; font-size: 10px; }
+.technician-options { position: absolute; z-index: 3; top: calc(100% + 4px); left: 0; right: 0; display: grid; max-height: 180px; overflow-y: auto; padding: 4px; border: 1px solid #e1e8ea; border-radius: 7px; background: white; box-shadow: 0 8px 20px #243b4a18; }
+.technician-options button { display: grid; gap: 3px; padding: 8px; border: 0; border-radius: 4px; color: #405761; background: white; text-align: left; cursor: pointer; }
+.technician-options button:hover { background: #f2f8f5; }
+.technician-options small, .technician-options > span { color: #89979e; font-size: 10px; }
+.technician-options > span { padding: 8px; }
 .skill-hint { margin: 8px 0; color: #71818a; font-size: 11px; }
 .skill-error { color: #b44540; }
 .technician-list { padding: 0 20px 12px; }

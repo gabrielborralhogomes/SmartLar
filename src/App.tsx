@@ -45,6 +45,7 @@ const statusLabel: Record<PedidoStatus, string> = {
   concluido: "Concluído",
   cancelado: "Cancelado",
 };
+const paymentMethods = ["A definir", "Pix", "Dinheiro", "Crédito", "Débito"] as const;
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
@@ -377,7 +378,10 @@ function App() {
                 }, "Orçamento criado.")}
               />}
               {page === "gestao" && <OrderManagementPage pedidos={pedidos} clientes={clientes} tecnicos={tecnicos} onNavigate={() => setPage("pedidos")}
-                busy={busy} onStatusChange={(pedido, status, schedule) => runAction(async () => {
+                busy={busy} onPaymentChange={(pedido, formaPagamento) => runAction(async () => {
+                  const { error } = await db.from("pedidos").update({ forma_pagamento: formaPagamento }).eq("id", pedido.id);
+                  if (error) throw error;
+                }, "Forma de pagamento atualizada.")} onStatusChange={(pedido, status, schedule) => runAction(async () => {
                   if (status === "agendado") {
                     if (!schedule) throw new Error("Informe a equipe, o horário e a duração da instalação.");
                     const { error } = await db.rpc("agendar_pedido", {
@@ -812,8 +816,9 @@ function OrdersPage({ clientes, produtos, busy, onCreate, onCreateClient }: {
   </>;
 }
 
-function OrderManagementPage({ pedidos, clientes, tecnicos, busy, onNavigate, onStatusChange }: {
+function OrderManagementPage({ pedidos, clientes, tecnicos, busy, onNavigate, onPaymentChange, onStatusChange }: {
   pedidos: PedidoDetalhado[]; clientes: Cliente[]; tecnicos: Tecnico[]; busy: boolean; onNavigate: () => void;
+  onPaymentChange: (pedido: PedidoDetalhado, formaPagamento: string) => Promise<ActionResult<void>>;
   onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus, schedule?: ScheduleDraft) => Promise<ActionResult<void>>;
 }) {
   const [statusFilter, setStatusFilter] = useState("todos");
@@ -869,17 +874,20 @@ function OrderManagementPage({ pedidos, clientes, tecnicos, busy, onNavigate, on
         <Field label="Instalação até"><input type="date" value={installationBefore} onChange={(event) => setInstallationBefore(event.target.value)} /></Field>
       </div>
       <div className="table-wrap"><table className="orders-table"><thead><tr><th>PEDIDO</th><th>CLIENTE</th><th>CRIADO EM</th><th>INSTALAÇÃO</th><th>VALOR</th><th>STATUS</th><th /></tr></thead><tbody>
-        {filtered.map((order) => <FragmentOrder key={order.id} order={order} expanded={expanded === order.id} onToggle={() => setExpanded(expanded === order.id ? null : order.id)} tecnicos={tecnicos} schedule={schedule[order.id] ?? { tecnicoIds: suggestedTechnicianIds(order, tecnicos), data: toLocalDateTimeInput(order.data_instalacao), duracaoMinutos: order.duracao_instalacao_minutos ?? 60 }} onScheduleChange={(value) => setSchedule((current) => ({ ...current, [order.id]: value }))} busy={busy} onStatusChange={onStatusChange} />)}
+        {filtered.map((order) => <FragmentOrder key={order.id} order={order} expanded={expanded === order.id} onToggle={() => setExpanded(expanded === order.id ? null : order.id)} tecnicos={tecnicos} schedule={schedule[order.id] ?? { tecnicoIds: suggestedTechnicianIds(order, tecnicos), data: toLocalDateTimeInput(order.data_instalacao), duracaoMinutos: order.duracao_instalacao_minutos ?? 60 }} onScheduleChange={(value) => setSchedule((current) => ({ ...current, [order.id]: value }))} busy={busy} onPaymentChange={onPaymentChange} onStatusChange={onStatusChange} />)}
       </tbody></table>{filtered.length === 0 && <EmptyState title="Nenhum pedido neste filtro" text="Ajuste os filtros para ver pedidos." />}</div>
     </section>
   </>;
 }
 
-function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onScheduleChange, busy, onStatusChange }: {
+function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onScheduleChange, busy, onPaymentChange, onStatusChange }: {
   order: PedidoDetalhado; expanded: boolean; onToggle: () => void; tecnicos: Tecnico[]; schedule: ScheduleDraft;
   onScheduleChange: (schedule: ScheduleDraft) => void; busy: boolean;
+  onPaymentChange: (pedido: PedidoDetalhado, formaPagamento: string) => Promise<ActionResult<void>>;
   onStatusChange: (pedido: PedidoDetalhado, status: PedidoStatus, schedule?: ScheduleDraft) => Promise<ActionResult<void>>;
 }) {
+  const [technicianSearch, setTechnicianSearch] = useState("");
+  const [technicianOptionsOpen, setTechnicianOptionsOpen] = useState(false);
   const nextStatus: Partial<Record<PedidoStatus, PedidoStatus>> = { orcamento: "aprovado", aprovado: "agendado", agendado: "em_andamento", em_andamento: "concluido" };
   const canCancel = order.status === "orcamento" || order.status === "aprovado";
   const scheduleDate = schedule.data ? saoPauloDateTimeToDate(schedule.data) : null;
@@ -888,11 +896,24 @@ function FragmentOrder({ order, expanded, onToggle, tecnicos, schedule, onSchedu
   const coveredSkills = new Set(tecnicos.filter((technician) => technician.ativo && schedule.tecnicoIds.includes(technician.id)).flatMap((technician) => technician.habilidades_instalacao ?? []));
   const teamCoversSkills = skills.every((skill) => coveredSkills.has(skill));
   const assignedNames = order.tecnicos?.map((technician) => technician.nome).join(" + ");
+  const availableTechnicians = tecnicos.filter((technician) => technician.ativo
+    && !schedule.tecnicoIds.includes(technician.id)
+    && technician.nome.toLocaleLowerCase("pt-BR").includes(technicianSearch.trim().toLocaleLowerCase("pt-BR")));
+  const addTechnician = (technician: Tecnico) => {
+    if (schedule.tecnicoIds.length >= 2) return;
+    onScheduleChange({ ...schedule, tecnicoIds: [...schedule.tecnicoIds, technician.id] });
+    setTechnicianSearch("");
+    setTechnicianOptionsOpen(false);
+  };
   return <>
     <tr className="order-row"><td><strong className="order-number">#{order.id.slice(0, 8).toUpperCase()}</strong></td><td><strong>{order.cliente?.nome ?? "Cliente"}</strong><span className="table-subtitle">{order.cliente?.telefone ?? ""}</span></td><td>{dateOnly.format(new Date(order.created_at))}</td><td>{order.data_instalacao ? dateTime.format(new Date(order.data_instalacao)) : "—"}</td><td><strong>{currency.format(Number(order.valor_total))}</strong></td><td><StatusBadge status={order.status} /></td><td><button className="text-button" onClick={onToggle}>{expanded ? "Fechar" : "Detalhes"}</button></td></tr>
     {expanded && <tr className="expanded-order"><td colSpan={7}><div className="order-detail-grid"><div><span className="detail-label">PRODUTOS</span>{order.itens.map((item) => <div className="detail-item" key={item.id}>{item.quantidade} × {item.produto?.nome ?? "Produto"} ({currency.format(Number(item.preco_unitario))} cada) <strong>{currency.format(Number(item.subtotal))}</strong></div>)}{order.observacoes && <p className="detail-notes">{order.observacoes}</p>}</div><div><span className="detail-label">CLIENTE E INSTALAÇÃO</span><p>{order.cliente ? getClientAddress(order.cliente) : "Endereço não informado"}</p><p>Contato: {order.cliente?.telefone ?? "Não informado"} · {order.cliente?.email ?? "Sem e-mail"}</p><p>Técnico(s): {assignedNames ?? "Ainda não definido"}</p>
-      <p>Pagamento: {order.forma_pagamento ?? "A definir"}</p>
-      {order.status === "aprovado" && <><div className="schedule-inline schedule-team">{tecnicos.filter((tech) => tech.ativo).map((tech) => <label className="schedule-tech-option" key={tech.id}><input type="checkbox" checked={schedule.tecnicoIds.includes(tech.id)} onChange={(event) => onScheduleChange({ ...schedule, tecnicoIds: event.target.checked ? [...schedule.tecnicoIds, tech.id] : schedule.tecnicoIds.filter((id) => id !== tech.id) })} /><span>{tech.nome}<small>{tech.especialidade}</small></span></label>)}</div><p className="skill-hint">Especialidades exigidas: {skills.map((skill) => installationSkills[skill] ?? skill).join(" + ") || "não configuradas"}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{!teamCoversSkills && <p className="skill-hint skill-error">A equipe selecionada não cobre todas as especialidades exigidas.</p>}</>}
+      {order.status === "aprovado" ? <label className="payment-field">Forma de pagamento<select value={order.forma_pagamento ?? "A definir"} disabled={busy} onChange={(event) => void onPaymentChange(order, event.target.value)}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label> : <p>Pagamento: {order.forma_pagamento ?? "A definir"}</p>}
+      {order.status === "aprovado" && <><div className="schedule-team"><div className="technician-tags">{schedule.tecnicoIds.map((technicianId) => {
+        const technician = tecnicos.find((item) => item.id === technicianId);
+        if (!technician) return null;
+        return <span className="technician-tag" key={technician.id}>{technician.nome}<button type="button" aria-label={`Remover ${technician.nome}`} onClick={() => onScheduleChange({ ...schedule, tecnicoIds: schedule.tecnicoIds.filter((id) => id !== technician.id) })}>×</button></span>;
+      })}</div><div className="technician-picker"><input type="text" role="combobox" aria-label="Buscar técnico" aria-expanded={technicianOptionsOpen} placeholder={schedule.tecnicoIds.length >= 2 ? "Máximo de dois técnicos" : "Digite para buscar técnico..."} value={technicianSearch} disabled={schedule.tecnicoIds.length >= 2} onFocus={() => setTechnicianOptionsOpen(true)} onBlur={() => window.setTimeout(() => setTechnicianOptionsOpen(false), 120)} onChange={(event) => { setTechnicianSearch(event.target.value); setTechnicianOptionsOpen(true); }} />{technicianOptionsOpen && schedule.tecnicoIds.length < 2 && <div className="technician-options">{availableTechnicians.length ? availableTechnicians.map((technician) => <button type="button" key={technician.id} onMouseDown={(event) => event.preventDefault()} onClick={() => addTechnician(technician)}><strong>{technician.nome}</strong><small>{technician.especialidade}</small></button>) : <span>Nenhum técnico correspondente</span>}</div>}</div><small className="technician-picker-hint">Selecione até dois técnicos ativos.</small></div><p className="skill-hint">Especialidades exigidas: {skills.map((skill) => installationSkills[skill] ?? skill).join(" + ") || "não configuradas"}</p><div className="schedule-inline"><label>Data e hora<input type="datetime-local" min={localDateTimeMinimum()} value={schedule.data} onChange={(event) => onScheduleChange({ ...schedule, data: event.target.value })} /></label><label>Duração (minutos)<input type="number" min="15" max="480" step="15" value={schedule.duracaoMinutos} onChange={(event) => onScheduleChange({ ...schedule, duracaoMinutos: Number(event.target.value) })} /></label></div>{!teamCoversSkills && <p className="skill-hint skill-error">A equipe selecionada não cobre todas as especialidades exigidas.</p>}</>}
       <div className="order-actions">{nextStatus[order.status] && <button disabled={busy || (order.status === "aprovado" && (!schedule.tecnicoIds.length || !teamCoversSkills || !validFutureSchedule || schedule.duracaoMinutos < 15 || schedule.duracaoMinutos > 480))} className="button button-primary button-small" onClick={() => void onStatusChange(order, nextStatus[order.status]!, order.status === "aprovado" ? schedule : undefined)}>{order.status === "aprovado" ? "Agendar instalação" : `Avançar para ${statusLabel[nextStatus[order.status]!]}`}</button>}{canCancel && <button disabled={busy} className="button button-danger-ghost button-small" onClick={() => void onStatusChange(order, "cancelado")}>Cancelar pedido</button>}</div>
     </div></div></td></tr>}
   </>;
