@@ -398,6 +398,7 @@ td, .table-client strong, .selected-client-orders > strong, .mini-order, .produc
 .technician-options > span { padding: 8px; }
 .skill-hint { margin: 8px 0; color: #71818a; font-size: 11px; }
 .skill-error { color: #b44540; }
+.order-detail-grid .schedule-validation-error { color: #b42318; font-weight: 600; }
 .technician-list { padding: 0 20px 12px; }
 .technician-row { display: flex; align-items: center; gap: 13px; min-height: 72px; border-top: 1px solid #eef1f2; }
 .technician-info { display: grid; flex: 1; gap: 3px; }
