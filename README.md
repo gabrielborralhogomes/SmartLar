@@ -5,6 +5,7 @@ Aplicação web para gerir clientes, catálogo de produtos, orçamentos, pedidos
 ## Login
 
 User: rafaelcastro@gmail.com
+
 Password: 123456
 
 ## Tecnologias e estrutura
