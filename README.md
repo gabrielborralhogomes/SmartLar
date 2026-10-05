@@ -2,6 +2,11 @@
 
 Aplicação web para gerir clientes, catálogo de produtos, orçamentos, pedidos e instalações técnicas. O frontend usa React, TypeScript e Vite; os dados e regras centrais de negócio ficam no Supabase (PostgreSQL e Auth).
 
+## Login
+
+User: rafaelcastro@gmail.com
+Password: 123456
+
 ## Tecnologias e estrutura
 
 - `src/`: aplicação web.
